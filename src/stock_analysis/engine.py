@@ -29,20 +29,62 @@ class OptionEngine:
         expiry: date,
         strike: float,
         right: str = "put",
+        asof: date | None = None,
+        spot: float | None = None,
+        r: float = 0.0,
+        q: float = 0.0,
     ) -> Dict[str, Any]:
         right = str(right).strip().lower()
         if right not in {"put", "call"}:
             raise ValueError("right must be 'put' or 'call'")
 
+        asof_d = asof or date.today()
+        s = float(spot) if spot is not None else self._nasdaq.get_underlying_from_option_chain(ticker)[0]
+        t_years = (expiry - asof_d).days / 365.0
+        inp = BsInputs(s=float(s), k=float(strike), t=float(max(t_years, 0.0)), r=float(r), q=float(q))
+
+        def _iv_and_delta(premium_mid: float) -> tuple[float | None, float | None]:
+            if premium_mid <= 0:
+                return None, None
+            if right == "put":
+                iv = implied_vol_put_bisect(inp, float(premium_mid)) if inp.t > 0 else None
+                delta = bs_put_delta(inp, float(iv)) if iv is not None else (bs_put_delta(inp, 0.0) if inp.t <= 0 else None)
+                return iv, delta
+            iv = implied_vol_call_bisect(inp, float(premium_mid)) if inp.t > 0 else None
+            delta = bs_call_delta(inp, float(iv)) if iv is not None else (bs_call_delta(inp, 0.0) if inp.t <= 0 else None)
+            return iv, delta
+
         if right == "put":
             p = self._nasdaq.get_put_premium(ticker, expiry, float(strike))
             d = asdict(p)
             d["right"] = "put"
+            d["asof"] = asof_d.isoformat()
+            d["spot"] = float(s)
+            d["r"] = float(r)
+            d["q"] = float(q)
+            if d.get("mid") is not None:
+                iv, delta = _iv_and_delta(float(d["mid"]))
+                d["iv"] = float(iv) if iv is not None else None
+                d["delta"] = float(delta) if delta is not None else None
+            else:
+                d["iv"] = None
+                d["delta"] = None
             return d
 
         c = self._nasdaq.get_call_premium(ticker, expiry, float(strike))
         d = asdict(c)
         d["right"] = "call"
+        d["asof"] = asof_d.isoformat()
+        d["spot"] = float(s)
+        d["r"] = float(r)
+        d["q"] = float(q)
+        if d.get("mid") is not None:
+            iv, delta = _iv_and_delta(float(d["mid"]))
+            d["iv"] = float(iv) if iv is not None else None
+            d["delta"] = float(delta) if delta is not None else None
+        else:
+            d["iv"] = None
+            d["delta"] = None
         return d
 
     def find_strike_for_delta(

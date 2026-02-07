@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, Query
 
 from .engine import OptionEngine
 
-app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "https://getdata-uufz.onrender.com"}])
+app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "http://localhost:8080"}])
 engine = OptionEngine()
 
 @app.get("/")
@@ -81,9 +81,22 @@ def option_premium(
     expiry: date = Query(..., description="Option expiry date (YYYY-MM-DD)"),
     strike: float = Query(..., description="Option strike"),
     right: str = Query("put", description="Option right: put or call"),
+    asof: date = Query(default_factory=date.today, description="As-of date for T (YYYY-MM-DD)"),
+    spot: float | None = Query(None, description="Override spot price"),
+    r: float = Query(0.0),
+    q: float = Query(0.0),
 ):
     try:
-        return engine.get_option_premium(ticker=ticker, expiry=expiry, strike=strike, right=right)
+        return engine.get_option_premium(
+            ticker=ticker,
+            expiry=expiry,
+            strike=strike,
+            right=right,
+            asof=asof,
+            spot=spot,
+            r=r,
+            q=q,
+        )
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(e))
 
