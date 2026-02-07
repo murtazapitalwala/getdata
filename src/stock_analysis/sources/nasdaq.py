@@ -45,9 +45,21 @@ class Nasdaq:
     def __init__(self, http: Optional[HttpClient] = None) -> None:
         self._http = http or HttpClient()
 
-    def _fetch_option_chain(self, ticker: str) -> tuple[dict, str]:
+    def _fetch_option_chain(
+        self,
+        ticker: str,
+        *,
+        fromdate: date | None = None,
+        todate: date | None = None,
+    ) -> tuple[dict, str]:
         url = NASDAQ_OPTION_CHAIN_URL.format(ticker=ticker.lower())
-        data, meta = self._http.get_json(url, params={"assetclass": "stocks"})
+        params: Dict[str, Any] = {"assetclass": "stocks"}
+        if fromdate is not None:
+            params["fromdate"] = fromdate.isoformat()
+        if todate is not None:
+            params["todate"] = todate.isoformat()
+
+        data, meta = self._http.get_json(url, params=params)
         if not (data.get("data") and data["data"].get("table")):
             raise RuntimeError(f"Unexpected Nasdaq payload for {ticker}: {data.get('message') or data}")
         return data, meta.url
@@ -62,7 +74,9 @@ class Nasdaq:
         return float(m.group(1)), url
 
     def get_put_premium(self, ticker: str, expiry: date, strike: float) -> NasdaqPutPremium:
-        data, url_used = self._fetch_option_chain(ticker)
+        # Nasdaq's option-chain endpoint defaults to a limited expiry window.
+        # Request the specific expiry to ensure the desired chain is returned.
+        data, url_used = self._fetch_option_chain(ticker, fromdate=expiry, todate=expiry)
         rows: List[Dict[str, Any]] = data["data"]["table"].get("rows") or []
         if not rows:
             raise RuntimeError(f"No option-chain rows returned for {ticker} from Nasdaq")
@@ -123,7 +137,9 @@ class Nasdaq:
         )
 
     def get_put_chain(self, ticker: str, expiry: date) -> tuple[list[dict[str, Any]], str]:
-        data, url_used = self._fetch_option_chain(ticker)
+        # Nasdaq's option-chain endpoint defaults to a limited expiry window.
+        # Request the specific expiry to ensure the desired chain is returned.
+        data, url_used = self._fetch_option_chain(ticker, fromdate=expiry, todate=expiry)
         rows: List[Dict[str, Any]] = data["data"]["table"].get("rows") or []
         if not rows:
             raise RuntimeError(f"No option-chain rows returned for {ticker} from Nasdaq")
