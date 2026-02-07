@@ -39,7 +39,13 @@ def build_parser() -> argparse.ArgumentParser:
     sfd = sub.add_parser("strike-from-delta", help="Find put strike closest to a target delta (approx via Black–Scholes)")
     sfd.add_argument("--ticker", required=True)
     sfd.add_argument("--expiry", required=True, help="YYYY-MM-DD")
-    sfd.add_argument("--target-delta", type=float, default=-0.20, help="Put delta target (default -0.20)")
+    sfd.add_argument("--right", default="put", choices=["put", "call"], help="Option right (default put)")
+    sfd.add_argument(
+        "--target-delta",
+        type=float,
+        default=-0.20,
+        help="Target delta (puts typically negative, calls positive). Default -0.20",
+    )
     sfd.add_argument("--asof", default=None, help="YYYY-MM-DD; defaults to today")
     sfd.add_argument("--spot", type=float, default=None, help="Override underlying price (spot)")
     sfd.add_argument("--r", type=float, default=0.0, help="Risk-free rate (annualized), default 0")
@@ -52,7 +58,13 @@ def build_parser() -> argparse.ArgumentParser:
     ds.add_argument("--ticker", required=True)
     ds.add_argument("--spot", required=True, type=float, help="Underlying price (spot)")
     ds.add_argument("--expiry", required=True, help="YYYY-MM-DD")
-    ds.add_argument("--target-delta", type=float, default=-0.20, help="Put delta target (default -0.20)")
+    ds.add_argument("--right", default="put", choices=["put", "call"], help="Option right (default put)")
+    ds.add_argument(
+        "--target-delta",
+        type=float,
+        default=-0.20,
+        help="Target delta (puts typically negative, calls positive). Default -0.20",
+    )
     ds.add_argument("--asof", default=None, help="YYYY-MM-DD; defaults to today")
     ds.add_argument("--r", type=float, default=0.0)
     ds.add_argument("--q", type=float, default=0.0)
@@ -62,12 +74,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Given ticker+delta(+expiry), return strike and premium (mid) for that put delta",
     )
     sp.add_argument("--ticker", required=True)
+    sp.add_argument("--right", default="put", choices=["put", "call"], help="Option right (default put)")
     sp.add_argument("--target-delta", required=True, type=float, help="Target put delta, e.g. -0.20")
     sp.add_argument("--expiry", default=None, help="YYYY-MM-DD; defaults to nearest available")
     sp.add_argument("--asof", default=None, help="YYYY-MM-DD; defaults to today")
     sp.add_argument("--spot", type=float, default=None, help="Override underlying price (spot)")
     sp.add_argument("--r", type=float, default=0.0)
     sp.add_argument("--q", type=float, default=0.0)
+
+    call = sub.add_parser("call-premium", help="Get call option premium for strike/expiry")
+    call.add_argument("--ticker", required=True)
+    call.add_argument("--expiry", required=True, help="YYYY-MM-DD")
+    call.add_argument("--strike", required=True, type=float)
+
+    cc = sub.add_parser("covered-call", help="Covered call analysis (sell call against 100 shares)")
+    cc.add_argument("--ticker", required=True)
+    cc.add_argument("--expiry", required=True, help="YYYY-MM-DD")
+    cc.add_argument("--asof", default=None, help="YYYY-MM-DD; defaults to today")
+    cc.add_argument("--spot", type=float, default=None, help="Override underlying price (spot)")
+    cc.add_argument("--strike", type=float, default=None, help="Call strike; if omitted, pick by target delta")
+    cc.add_argument("--target-delta", type=float, default=0.20, help="Target call delta (default 0.20)")
+    cc.add_argument("--shares", type=int, default=100, help="Share count (must be multiple of 100)")
+    cc.add_argument("--r", type=float, default=0.0)
+    cc.add_argument("--q", type=float, default=0.0)
 
     return p
 
@@ -126,6 +155,7 @@ def main(argv: list[str] | None = None) -> int:
             expiry=expiry,
             target_delta=float(args.target_delta),
             asof=asof,
+            right=str(args.right),
             spot=args.spot,
             r=float(args.r),
             q=float(args.q),
@@ -151,12 +181,15 @@ def main(argv: list[str] | None = None) -> int:
             expiry=expiry,
             target_delta=float(args.target_delta),
             asof=asof,
+            right=str(args.right),
             spot=float(args.spot),
             r=float(args.r),
             q=float(args.q),
         )
         print(f"Ticker symbol {ticker}")
-        print(f"spot {float(args.spot):.2f} expiry {expiry.isoformat()} target put delta {float(args.target_delta):.2f}")
+        print(
+            f"spot {float(args.spot):.2f} expiry {expiry.isoformat()} right {str(args.right)} target delta {float(args.target_delta):.2f}"
+        )
         print(f"strike ~ {chosen['strike']:.2f} delta ~ {chosen['delta']:.3f}")
         return 0
 
@@ -165,10 +198,11 @@ def main(argv: list[str] | None = None) -> int:
         asof = parse_ymd(args.asof) if args.asof else _date.today()
 
         expiry = parse_ymd(args.expiry) if args.expiry else None
-        chosen = engine.strike_and_premium_for_delta(
+        chosen = engine.strike_and_premium_for_delta_right(
             ticker=ticker,
             target_delta=float(args.target_delta),
             asof=asof,
+            right=str(args.right),
             expiry=expiry,
             spot=args.spot,
             r=float(args.r),
@@ -176,8 +210,36 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         print(f"Ticker symbol {ticker}")
-        print(f"asof {chosen['asof']} expiry {chosen['expiry']} target put delta {float(args.target_delta):.2f}")
+        print(
+            f"asof {chosen['asof']} expiry {chosen['expiry']} right {chosen.get('right','put')} target delta {float(args.target_delta):.2f}"
+        )
         print(f"strike ~ {chosen['strike']:.2f} premium(mid) ~ {chosen['premium_mid']:.2f} (delta {chosen['delta']:.3f})")
+        return 0
+
+    if args.cmd == "call-premium":
+        c = nasdaq.get_call_premium(args.ticker, parse_ymd(args.expiry), args.strike)
+        _json_print(asdict(c))
+        return 0
+
+    if args.cmd == "covered-call":
+        ticker = args.ticker
+        expiry = parse_ymd(args.expiry)
+        asof = parse_ymd(args.asof) if args.asof else _date.today()
+        if expiry <= asof:
+            raise RuntimeError("expiry must be after asof")
+
+        rep = engine.covered_call(
+            ticker=ticker,
+            expiry=expiry,
+            asof=asof,
+            spot=args.spot,
+            strike=args.strike,
+            target_delta=float(args.target_delta),
+            shares=int(args.shares),
+            r=float(args.r),
+            q=float(args.q),
+        )
+        _json_print(rep)
         return 0
 
     if args.cmd == "put-premium":

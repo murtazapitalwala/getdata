@@ -26,6 +26,19 @@ class NasdaqPutPremium:
     urls: List[str]
 
 
+@dataclass(frozen=True)
+class NasdaqCallPremium:
+    ticker: str
+    expiry: date
+    strike: float
+    bid: Optional[float]
+    ask: Optional[float]
+    last: Optional[float]
+    mid: Optional[float]
+    contract_symbol: Optional[str]
+    urls: List[str]
+
+
 def _to_float(v: Any) -> Optional[float]:
     if v is None:
         return None
@@ -136,6 +149,67 @@ class Nasdaq:
             urls=[url_used],
         )
 
+    def get_call_premium(self, ticker: str, expiry: date, strike: float) -> NasdaqCallPremium:
+        # Nasdaq's option-chain endpoint defaults to a limited expiry window.
+        # Request the specific expiry to ensure the desired chain is returned.
+        data, url_used = self._fetch_option_chain(ticker, fromdate=expiry, todate=expiry)
+        rows: List[Dict[str, Any]] = data["data"]["table"].get("rows") or []
+        if not rows:
+            raise RuntimeError(f"No option-chain rows returned for {ticker} from Nasdaq")
+
+        current_group: Optional[date] = None
+        chosen: Optional[Dict[str, Any]] = None
+
+        for r in rows:
+            group = r.get("expirygroup")
+            if group:
+                try:
+                    current_group = datetime.strptime(group.strip(), "%B %d, %Y").date()
+                except ValueError:
+                    current_group = None
+                continue
+
+            if current_group != expiry:
+                continue
+
+            r_strike = _to_float(r.get("strike"))
+            if r_strike is None:
+                continue
+            if abs(r_strike - float(strike)) > 1e-6:
+                continue
+
+            chosen = r
+            break
+
+        if chosen is None:
+            raise RuntimeError(f"No call row found for {ticker} expiry={expiry} strike={strike} via Nasdaq")
+
+        bid = _to_float(chosen.get("c_Bid"))
+        ask = _to_float(chosen.get("c_Ask"))
+        last = _to_float(chosen.get("c_Last"))
+        mid: Optional[float] = None
+        if bid is not None and ask is not None:
+            mid = (bid + ask) / 2.0
+        elif last is not None:
+            mid = last
+
+        drill = str(chosen.get("drillDownURL") or "")
+        contract_symbol: Optional[str] = None
+        if drill:
+            contract_symbol = drill.rsplit("/", 1)[-1]
+
+        return NasdaqCallPremium(
+            ticker=ticker,
+            expiry=expiry,
+            strike=float(strike),
+            bid=bid,
+            ask=ask,
+            last=last,
+            mid=mid,
+            contract_symbol=contract_symbol,
+            urls=[url_used],
+        )
+
     def get_put_chain(self, ticker: str, expiry: date) -> tuple[list[dict[str, Any]], str]:
         # Nasdaq's option-chain endpoint defaults to a limited expiry window.
         # Request the specific expiry to ensure the desired chain is returned.
@@ -186,6 +260,57 @@ class Nasdaq:
 
         puts.sort(key=lambda x: float(x["strike"]))
         return puts, url_used
+
+    def get_call_chain(self, ticker: str, expiry: date) -> tuple[list[dict[str, Any]], str]:
+        # Nasdaq's option-chain endpoint defaults to a limited expiry window.
+        # Request the specific expiry to ensure the desired chain is returned.
+        data, url_used = self._fetch_option_chain(ticker, fromdate=expiry, todate=expiry)
+        rows: List[Dict[str, Any]] = data["data"]["table"].get("rows") or []
+        if not rows:
+            raise RuntimeError(f"No option-chain rows returned for {ticker} from Nasdaq")
+
+        current_group: Optional[date] = None
+        calls: list[dict[str, Any]] = []
+        for r in rows:
+            group = r.get("expirygroup")
+            if group:
+                try:
+                    current_group = datetime.strptime(group.strip(), "%B %d, %Y").date()
+                except ValueError:
+                    current_group = None
+                continue
+
+            if current_group != expiry:
+                continue
+
+            strike_f = _to_float(r.get("strike"))
+            if strike_f is None:
+                continue
+
+            bid = _to_float(r.get("c_Bid"))
+            ask = _to_float(r.get("c_Ask"))
+            last = _to_float(r.get("c_Last"))
+            mid: Optional[float] = None
+            if bid is not None and ask is not None:
+                mid = (bid + ask) / 2.0
+            elif last is not None:
+                mid = last
+
+            calls.append(
+                {
+                    "strike": strike_f,
+                    "bid": bid,
+                    "ask": ask,
+                    "last": last,
+                    "mid": mid,
+                }
+            )
+
+        if not calls:
+            raise RuntimeError(f"No calls found for {ticker} expiry={expiry} via Nasdaq")
+
+        calls.sort(key=lambda x: float(x["strike"]))
+        return calls, url_used
 
     def get_available_expiries(self, ticker: str) -> tuple[list[date], str]:
         data, url_used = self._fetch_option_chain(ticker)
