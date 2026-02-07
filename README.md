@@ -40,13 +40,13 @@ python -m stock_analysis strike-premium --ticker META --target-delta -0.20 --exp
 Start the API server:
 
 ```bash
-"/Users/mpital200/Stock analysis/.venv/bin/python" -m stock_analysis.api
+"Stock analysis/.venv/bin/python" -m stock_analysis.api
 ```
 
 Or with uvicorn directly:
 
 ```bash
-"/Users/mpital200/Stock analysis/.venv/bin/python" -m uvicorn stock_analysis.api:app --host 0.0.0.0 --port 8080
+"Stock analysis/.venv/bin/python" -m uvicorn stock_analysis.api:app --host 0.0.0.0 --port 8080
 ```
 
 Endpoints (all parameters are query/URI parameters):
