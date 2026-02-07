@@ -22,6 +22,29 @@ class OptionEngine:
         price, url = self._nasdaq.get_underlying_from_option_chain(ticker)
         return {"ticker": ticker.upper(), "price": float(price), "source": url}
 
+    def get_option_premium(
+        self,
+        *,
+        ticker: str,
+        expiry: date,
+        strike: float,
+        right: str = "put",
+    ) -> Dict[str, Any]:
+        right = str(right).strip().lower()
+        if right not in {"put", "call"}:
+            raise ValueError("right must be 'put' or 'call'")
+
+        if right == "put":
+            p = self._nasdaq.get_put_premium(ticker, expiry, float(strike))
+            d = asdict(p)
+            d["right"] = "put"
+            return d
+
+        c = self._nasdaq.get_call_premium(ticker, expiry, float(strike))
+        d = asdict(c)
+        d["right"] = "call"
+        return d
+
     def find_strike_for_delta(
         self,
         *,

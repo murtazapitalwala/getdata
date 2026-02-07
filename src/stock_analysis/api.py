@@ -75,6 +75,19 @@ def strike_premium(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.get("/option-premium")
+def option_premium(
+    ticker: str = Query(...),
+    expiry: date = Query(..., description="Option expiry date (YYYY-MM-DD)"),
+    strike: float = Query(..., description="Option strike"),
+    right: str = Query("put", description="Option right: put or call"),
+):
+    try:
+        return engine.get_option_premium(ticker=ticker, expiry=expiry, strike=strike, right=right)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/covered-call")
 def covered_call(
     ticker: str = Query(...),
