@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, Query
 
 from .engine import OptionEngine
 
-app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "http://localhost:8080"}])
+app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "https://getdata-uufz.onrender.com"}])
 engine = OptionEngine()
 
 @app.get("/")
