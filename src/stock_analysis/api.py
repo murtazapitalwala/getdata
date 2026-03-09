@@ -16,9 +16,12 @@ def health():
 
 
 @app.get("/price")
-def get_price(ticker: str = Query(..., description="Ticker symbol, e.g. META")):
+def get_price(
+    ticker: str = Query(..., description="Ticker symbol, e.g. META"),
+    asset_class: str = Query("stocks", description="Asset class: stocks or etf"),
+):
     try:
-        return engine.get_latest_price(ticker)
+        return engine.get_latest_price(ticker, asset_class=asset_class)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -33,6 +36,7 @@ def delta_strike(
     asof: date = Query(default_factory=date.today, description="As-of date for T (YYYY-MM-DD)"),
     r: float = Query(0.0, description="Risk-free rate (annualized)"),
     q: float = Query(0.0, description="Dividend yield (annualized)"),
+    asset_class: str = Query("stocks", description="Asset class: stocks or etf"),
 ):
     try:
         return engine.find_strike_for_delta(
@@ -44,6 +48,7 @@ def delta_strike(
             spot=spot,
             r=r,
             q=q,
+            asset_class=asset_class,
         )
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(e))
@@ -59,6 +64,7 @@ def strike_premium(
     spot: float | None = Query(None, description="Override spot price"),
     r: float = Query(0.0),
     q: float = Query(0.0),
+    asset_class: str = Query("stocks", description="Asset class: stocks or etf"),
 ):
     try:
         return engine.strike_and_premium_for_delta_right(
@@ -70,6 +76,7 @@ def strike_premium(
             spot=spot,
             r=r,
             q=q,
+            asset_class=asset_class,
         )
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(e))
@@ -85,6 +92,7 @@ def option_premium(
     spot: float | None = Query(None, description="Override spot price"),
     r: float = Query(0.0),
     q: float = Query(0.0),
+    asset_class: str = Query("stocks", description="Asset class: stocks or etf"),
 ):
     try:
         return engine.get_option_premium(
@@ -96,6 +104,7 @@ def option_premium(
             spot=spot,
             r=r,
             q=q,
+            asset_class=asset_class,
         )
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(e))
@@ -112,6 +121,7 @@ def covered_call(
     shares: int = Query(100, description="Share count (must be multiple of 100)"),
     r: float = Query(0.0),
     q: float = Query(0.0),
+    asset_class: str = Query("stocks", description="Asset class: stocks or etf"),
 ):
     try:
         return engine.covered_call(
@@ -124,6 +134,7 @@ def covered_call(
             shares=shares,
             r=r,
             q=q,
+            asset_class=asset_class,
         )
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(e))

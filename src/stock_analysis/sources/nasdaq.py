@@ -64,9 +64,10 @@ class Nasdaq:
         *,
         fromdate: date | None = None,
         todate: date | None = None,
+        asset_class: str = "stocks",
     ) -> tuple[dict, str]:
         url = NASDAQ_OPTION_CHAIN_URL.format(ticker=ticker.lower())
-        params: Dict[str, Any] = {"assetclass": "stocks"}
+        params: Dict[str, Any] = {"assetclass": asset_class}
         if fromdate is not None:
             params["fromdate"] = fromdate.isoformat()
         if todate is not None:
@@ -77,8 +78,8 @@ class Nasdaq:
             raise RuntimeError(f"Unexpected Nasdaq payload for {ticker}: {data.get('message') or data}")
         return data, meta.url
 
-    def get_underlying_from_option_chain(self, ticker: str) -> tuple[float, str]:
-        data, url = self._fetch_option_chain(ticker)
+    def get_underlying_from_option_chain(self, ticker: str, asset_class: str = "stocks") -> tuple[float, str]:
+        data, url = self._fetch_option_chain(ticker, asset_class=asset_class)
         last_trade = (data.get("data") or {}).get("lastTrade") or ""
         # Example: "LAST TRADE: $82.2 (AS OF FEB 6, 2026)"
         m = re.search(r"\$\s*(\d+(?:\.\d+)?)", str(last_trade))
@@ -86,10 +87,10 @@ class Nasdaq:
             raise RuntimeError(f"Could not parse underlying lastTrade for {ticker}: {last_trade!r}")
         return float(m.group(1)), url
 
-    def get_put_premium(self, ticker: str, expiry: date, strike: float) -> NasdaqPutPremium:
+    def get_put_premium(self, ticker: str, expiry: date, strike: float, asset_class: str = "stocks") -> NasdaqPutPremium:
         # Nasdaq's option-chain endpoint defaults to a limited expiry window.
         # Request the specific expiry to ensure the desired chain is returned.
-        data, url_used = self._fetch_option_chain(ticker, fromdate=expiry, todate=expiry)
+        data, url_used = self._fetch_option_chain(ticker, fromdate=expiry, todate=expiry, asset_class=asset_class)
         rows: List[Dict[str, Any]] = data["data"]["table"].get("rows") or []
         if not rows:
             raise RuntimeError(f"No option-chain rows returned for {ticker} from Nasdaq")
@@ -149,10 +150,10 @@ class Nasdaq:
             urls=[url_used],
         )
 
-    def get_call_premium(self, ticker: str, expiry: date, strike: float) -> NasdaqCallPremium:
+    def get_call_premium(self, ticker: str, expiry: date, strike: float, asset_class: str = "stocks") -> NasdaqCallPremium:
         # Nasdaq's option-chain endpoint defaults to a limited expiry window.
         # Request the specific expiry to ensure the desired chain is returned.
-        data, url_used = self._fetch_option_chain(ticker, fromdate=expiry, todate=expiry)
+        data, url_used = self._fetch_option_chain(ticker, fromdate=expiry, todate=expiry, asset_class=asset_class)
         rows: List[Dict[str, Any]] = data["data"]["table"].get("rows") or []
         if not rows:
             raise RuntimeError(f"No option-chain rows returned for {ticker} from Nasdaq")
@@ -210,10 +211,10 @@ class Nasdaq:
             urls=[url_used],
         )
 
-    def get_put_chain(self, ticker: str, expiry: date) -> tuple[list[dict[str, Any]], str]:
+    def get_put_chain(self, ticker: str, expiry: date, asset_class: str = "stocks") -> tuple[list[dict[str, Any]], str]:
         # Nasdaq's option-chain endpoint defaults to a limited expiry window.
         # Request the specific expiry to ensure the desired chain is returned.
-        data, url_used = self._fetch_option_chain(ticker, fromdate=expiry, todate=expiry)
+        data, url_used = self._fetch_option_chain(ticker, fromdate=expiry, todate=expiry, asset_class=asset_class)
         rows: List[Dict[str, Any]] = data["data"]["table"].get("rows") or []
         if not rows:
             raise RuntimeError(f"No option-chain rows returned for {ticker} from Nasdaq")
@@ -261,10 +262,10 @@ class Nasdaq:
         puts.sort(key=lambda x: float(x["strike"]))
         return puts, url_used
 
-    def get_call_chain(self, ticker: str, expiry: date) -> tuple[list[dict[str, Any]], str]:
+    def get_call_chain(self, ticker: str, expiry: date, asset_class: str = "stocks") -> tuple[list[dict[str, Any]], str]:
         # Nasdaq's option-chain endpoint defaults to a limited expiry window.
         # Request the specific expiry to ensure the desired chain is returned.
-        data, url_used = self._fetch_option_chain(ticker, fromdate=expiry, todate=expiry)
+        data, url_used = self._fetch_option_chain(ticker, fromdate=expiry, todate=expiry, asset_class=asset_class)
         rows: List[Dict[str, Any]] = data["data"]["table"].get("rows") or []
         if not rows:
             raise RuntimeError(f"No option-chain rows returned for {ticker} from Nasdaq")
@@ -312,8 +313,8 @@ class Nasdaq:
         calls.sort(key=lambda x: float(x["strike"]))
         return calls, url_used
 
-    def get_available_expiries(self, ticker: str) -> tuple[list[date], str]:
-        data, url_used = self._fetch_option_chain(ticker)
+    def get_available_expiries(self, ticker: str, asset_class: str = "stocks") -> tuple[list[date], str]:
+        data, url_used = self._fetch_option_chain(ticker, asset_class=asset_class)
         rows: List[Dict[str, Any]] = data["data"]["table"].get("rows") or []
         expiries: list[date] = []
         for r in rows:
@@ -329,16 +330,16 @@ class Nasdaq:
             raise RuntimeError(f"No expiry groups found for {ticker} via Nasdaq")
         return expiries, url_used
 
-    def pick_nearest_expiry(self, ticker: str, *, asof: date) -> tuple[date, str]:
-        expiries, url_used = self.get_available_expiries(ticker)
+    def pick_nearest_expiry(self, ticker: str, *, asof: date, asset_class: str = "stocks") -> tuple[date, str]:
+        expiries, url_used = self.get_available_expiries(ticker, asset_class=asset_class)
         future = [e for e in expiries if e >= asof]
         if not future:
             return expiries[-1], url_used
         return future[0], url_used
 
-    def get_last_trade_price(self, ticker: str) -> tuple[float, str]:
+    def get_last_trade_price(self, ticker: str, asset_class: str = "stocks") -> tuple[float, str]:
         url = NASDAQ_QUOTE_URL.format(ticker=ticker.lower())
-        data, meta = self._http.get_json(url, params={"assetclass": "stocks"})
+        data, meta = self._http.get_json(url, params={"assetclass": asset_class})
         info = (data.get("data") or {}).get("primaryData") or {}
         last = info.get("lastSalePrice") or info.get("lastTrade")
         if last is None:

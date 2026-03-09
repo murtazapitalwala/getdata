@@ -18,8 +18,8 @@ class OptionEngine:
     def __init__(self, *, nasdaq: Optional[Nasdaq] = None) -> None:
         self._nasdaq = nasdaq or Nasdaq()
 
-    def get_latest_price(self, ticker: str) -> Dict[str, Any]:
-        price, url = self._nasdaq.get_underlying_from_option_chain(ticker)
+    def get_latest_price(self, ticker: str, asset_class: str = "stocks") -> Dict[str, Any]:
+        price, url = self._nasdaq.get_underlying_from_option_chain(ticker, asset_class=asset_class)
         return {"ticker": ticker.upper(), "price": float(price), "source": url}
 
     def get_option_premium(
@@ -33,13 +33,14 @@ class OptionEngine:
         spot: float | None = None,
         r: float = 0.0,
         q: float = 0.0,
+        asset_class: str = "stocks",
     ) -> Dict[str, Any]:
         right = str(right).strip().lower()
         if right not in {"put", "call"}:
             raise ValueError("right must be 'put' or 'call'")
 
         asof_d = asof or date.today()
-        s = float(spot) if spot is not None else self._nasdaq.get_underlying_from_option_chain(ticker)[0]
+        s = float(spot) if spot is not None else self._nasdaq.get_underlying_from_option_chain(ticker, asset_class=asset_class)[0]
         t_years = (expiry - asof_d).days / 365.0
         inp = BsInputs(s=float(s), k=float(strike), t=float(max(t_years, 0.0)), r=float(r), q=float(q))
 
@@ -55,7 +56,7 @@ class OptionEngine:
             return iv, delta
 
         if right == "put":
-            p = self._nasdaq.get_put_premium(ticker, expiry, float(strike))
+            p = self._nasdaq.get_put_premium(ticker, expiry, float(strike), asset_class=asset_class)
             d = asdict(p)
             d["right"] = "put"
             d["asof"] = asof_d.isoformat()
@@ -71,7 +72,7 @@ class OptionEngine:
                 d["delta"] = None
             return d
 
-        c = self._nasdaq.get_call_premium(ticker, expiry, float(strike))
+        c = self._nasdaq.get_call_premium(ticker, expiry, float(strike), asset_class=asset_class)
         d = asdict(c)
         d["right"] = "call"
         d["asof"] = asof_d.isoformat()
@@ -98,6 +99,7 @@ class OptionEngine:
         spot: float | None = None,
         r: float = 0.0,
         q: float = 0.0,
+        asset_class: str = "stocks",
     ) -> Dict[str, Any]:
         right = str(right).strip().lower()
         if right not in {"put", "call"}:
@@ -105,11 +107,11 @@ class OptionEngine:
         if expiry <= asof:
             raise ValueError("expiry must be after asof")
 
-        s = float(spot) if spot is not None else self._nasdaq.get_underlying_from_option_chain(ticker)[0]
+        s = float(spot) if spot is not None else self._nasdaq.get_underlying_from_option_chain(ticker, asset_class=asset_class)[0]
         chain, url_chain = (
-            self._nasdaq.get_put_chain(ticker, expiry)
+            self._nasdaq.get_put_chain(ticker, expiry, asset_class=asset_class)
             if right == "put"
-            else self._nasdaq.get_call_chain(ticker, expiry)
+            else self._nasdaq.get_call_chain(ticker, expiry, asset_class=asset_class)
         )
 
         t_years = (expiry - asof).days / 365.0
@@ -165,9 +167,10 @@ class OptionEngine:
         spot: float | None = None,
         r: float = 0.0,
         q: float = 0.0,
+        asset_class: str = "stocks",
     ) -> Dict[str, Any]:
         if expiry is None:
-            expiry, _ = self._nasdaq.pick_nearest_expiry(ticker, asof=asof)
+            expiry, _ = self._nasdaq.pick_nearest_expiry(ticker, asof=asof, asset_class=asset_class)
 
         return self.find_strike_for_delta(
             ticker=ticker,
@@ -178,6 +181,7 @@ class OptionEngine:
             spot=spot,
             r=r,
             q=q,
+            asset_class=asset_class,
         )
 
     def strike_and_premium_for_delta_right(
@@ -191,9 +195,10 @@ class OptionEngine:
         spot: float | None = None,
         r: float = 0.0,
         q: float = 0.0,
+        asset_class: str = "stocks",
     ) -> Dict[str, Any]:
         if expiry is None:
-            expiry, _ = self._nasdaq.pick_nearest_expiry(ticker, asof=asof)
+            expiry, _ = self._nasdaq.pick_nearest_expiry(ticker, asof=asof, asset_class=asset_class)
         return self.find_strike_for_delta(
             ticker=ticker,
             expiry=expiry,
@@ -203,6 +208,7 @@ class OptionEngine:
             spot=spot,
             r=r,
             q=q,
+            asset_class=asset_class,
         )
 
     def covered_call(
@@ -217,13 +223,14 @@ class OptionEngine:
         r: float = 0.0,
         q: float = 0.0,
         shares: int = 100,
+        asset_class: str = "stocks",
     ) -> Dict[str, Any]:
         if shares <= 0:
             raise ValueError("shares must be positive")
         if shares % 100 != 0:
             raise ValueError("shares must be a multiple of 100 (1 option contract = 100 shares)")
 
-        s = float(spot) if spot is not None else self._nasdaq.get_underlying_from_option_chain(ticker)[0]
+        s = float(spot) if spot is not None else self._nasdaq.get_underlying_from_option_chain(ticker, asset_class=asset_class)[0]
         if strike is None:
             chosen = self.find_strike_for_delta(
                 ticker=ticker,
@@ -234,10 +241,11 @@ class OptionEngine:
                 spot=s,
                 r=r,
                 q=q,
+                asset_class=asset_class,
             )
         else:
             # User specified a strike; fetch premium and compute IV/delta for that strike.
-            call = self._nasdaq.get_call_premium(ticker, expiry, float(strike))
+            call = self._nasdaq.get_call_premium(ticker, expiry, float(strike), asset_class=asset_class)
             prem = call.mid if call.mid is not None else call.bid
             if prem is None:
                 raise RuntimeError("No usable call premium (mid/bid) returned from Nasdaq")
