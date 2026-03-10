@@ -150,6 +150,41 @@ def technicals(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.get("/debug/keys")
+def debug_keys():
+    """Show key manager state and test one raw API call."""
+    from .sources.alpha_vantage import _key_manager, AV_BASE_URL
+    from .http import HttpClient
+    http = HttpClient()
+    # Try first available key with a raw call
+    try:
+        key = _key_manager.get_key()
+    except Exception as e:
+        return {
+            "error": str(e),
+            "total_keys": len(_key_manager._keys),
+            "exhausted_count": len(_key_manager._exhausted),
+            "exhausted_keys_last4": [k[-4:] for k in _key_manager._exhausted],
+        }
+    params = {
+        "function": "TIME_SERIES_DAILY",
+        "symbol": "MSFT",
+        "outputsize": "compact",
+        "apikey": key,
+    }
+    data, _ = http.get_json(AV_BASE_URL, params=params)
+    info_msg = data.get("Information") or data.get("Note") or None
+    return {
+        "current_key_last4": key[-4:],
+        "total_keys": len(_key_manager._keys),
+        "exhausted_count": len(_key_manager._exhausted),
+        "exhausted_keys_last4": [k[-4:] for k in _key_manager._exhausted],
+        "raw_response_keys": list(data.keys())[:5],
+        "info_or_note": info_msg,
+        "has_time_series": "Time Series (Daily)" in data,
+    }
+
+
 def main() -> None:
     import uvicorn
 
