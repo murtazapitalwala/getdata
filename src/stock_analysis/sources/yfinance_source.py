@@ -112,5 +112,5 @@ class YFinanceSource:
             urls=[f"https://finance.yahoo.com/quote/{t}"],
         )
         logger.info("yfinance: %s indicators — SMA20=%s SMA50=%s SMA100=%s SMA200=%s RSI=%s MACD=%s",
-                     t, result.sma_20, result.sma_50, result.sma_100, result.sma_200, result.rsi_14, result.macd)
+                     t, result.sma_20, result.sma_50, result.sma_100, result.sma_200, result.rsi_14, result.macd_line)
         return result
