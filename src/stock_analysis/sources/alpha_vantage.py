@@ -210,6 +210,9 @@ class AlphaVantage:
         return "unknown"
 
     def _indicator(self, function: str, symbol: str, extra: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        consecutive_daily: Dict[str, int] = {}  # key -> count of consecutive "daily" hits
+        MAX_DAILY_RETRIES = 3  # retry a key this many times before marking exhausted
+
         while True:
             key = self._km.get_key()          # may raise AllKeysExhausted
             params: Dict[str, str] = {
@@ -228,16 +231,30 @@ class AlphaVantage:
             kind = self._classify_error(msg)
 
             if kind == "daily":
-                self._km.mark_exhausted(key)
-                continue  # retry with next key
+                consecutive_daily[key] = consecutive_daily.get(key, 0) + 1
+                if consecutive_daily[key] >= MAX_DAILY_RETRIES:
+                    self._km.mark_exhausted(key)
+                    continue  # move to next key
+                # Could be IP-based throttle disguised as daily limit — retry with delay
+                logger.info(
+                    "Daily-limit msg on key …%s (attempt %d/%d) — sleeping 3 s before retry",
+                    key[-4:], consecutive_daily[key], MAX_DAILY_RETRIES,
+                )
+                time.sleep(3)
+                continue  # retry same key
 
             if kind == "minute":
                 logger.info("Rate-limited on key …%s — sleeping 2 s", key[-4:])
                 time.sleep(2)
                 continue  # retry same key
 
-            # Unknown error — treat as daily to be safe
-            self._km.mark_exhausted(key)
+            # Unknown error — retry with delay before giving up
+            consecutive_daily[key] = consecutive_daily.get(key, 0) + 1
+            if consecutive_daily[key] >= MAX_DAILY_RETRIES:
+                self._km.mark_exhausted(key)
+                continue
+            logger.info("Unknown AV error on key …%s — sleeping 3 s", key[-4:])
+            time.sleep(3)
             continue
 
     def get_sma(self, ticker: str, time_period: int) -> Optional[float]:
