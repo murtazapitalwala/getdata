@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+
+import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +83,6 @@ def _macd(closes: List[float], fast: int = 12, slow: int = 26, signal: int = 9) 
 class YFinanceSource:
     def get_technicals(self, ticker: str) -> Technicals:
         """Fetch 1 year of daily closes from yfinance and compute all indicators locally."""
-        import yfinance as yf
-
         t = ticker.upper()
         logger.info("yfinance: downloading 1y daily data for %s", t)
         df = yf.download(t, period="1y", interval="1d", progress=False, auto_adjust=True)
@@ -114,3 +114,115 @@ class YFinanceSource:
         logger.info("yfinance: %s indicators — SMA20=%s SMA50=%s SMA100=%s SMA200=%s RSI=%s MACD=%s",
                      t, result.sma_20, result.sma_50, result.sma_100, result.sma_200, result.rsi_14, result.macd_line)
         return result
+
+    def get_option_chain(self, ticker: str, expiration: Optional[str] = None) -> Dict[str, Any]:
+        """Return option chain for a given expiration (or nearest if omitted)."""
+        t = ticker.upper()
+        tk = yf.Ticker(t)
+        expirations = tk.options
+        logger.info("yfinance: %s has %d option expirations", t, len(expirations))
+        if not expirations:
+            raise RuntimeError(f"No options available for {t}")
+
+        exp = expiration if expiration and expiration in expirations else expirations[0]
+        chain = tk.option_chain(exp)
+        logger.info("yfinance: %s chain for %s — %d calls, %d puts", t, exp, len(chain.calls), len(chain.puts))
+
+        def _df_to_records(df) -> List[Dict[str, Any]]:
+            import math
+            df = df.copy()
+            for col in df.columns:
+                if hasattr(df[col], "dt"):
+                    df[col] = df[col].astype(str)
+            records = []
+            for row in df.to_dict(orient="records"):
+                records.append({
+                    k: (None if isinstance(v, float) and (math.isnan(v) or math.isinf(v)) else v)
+                    for k, v in row.items()
+                })
+            return records
+
+        return {
+            "ticker": t,
+            "expiration": exp,
+            "expirations": list(expirations),
+            "calls": _df_to_records(chain.calls),
+            "puts": _df_to_records(chain.puts),
+        }
+
+    def get_recommendations(self, ticker: str) -> Dict[str, Any]:
+        """Return analyst recommendations and upgrades/downgrades."""
+        t = ticker.upper()
+        tk = yf.Ticker(t)
+
+        recs = []
+        try:
+            df = tk.recommendations
+            if df is not None and not df.empty:
+                df = df.reset_index()
+                for col in df.columns:
+                    if hasattr(df[col], "dt"):
+                        df[col] = df[col].astype(str)
+                recs = df.where(df.notna(), None).to_dict(orient="records")
+        except Exception:
+            logger.exception("yfinance: %s recommendations failed", t)
+
+        upgrades = []
+        try:
+            df = tk.upgrades_downgrades
+            if df is not None and not df.empty:
+                df = df.reset_index().head(50)
+                for col in df.columns:
+                    if hasattr(df[col], "dt"):
+                        df[col] = df[col].astype(str)
+                upgrades = df.where(df.notna(), None).to_dict(orient="records")
+        except Exception:
+            logger.exception("yfinance: %s upgrades_downgrades failed", t)
+
+        logger.info("yfinance: %s — %d recommendations, %d upgrades/downgrades", t, len(recs), len(upgrades))
+        return {
+            "ticker": t,
+            "recommendations": recs,
+            "upgrades_downgrades": upgrades,
+        }
+
+    def get_analyst_targets(self, ticker: str) -> Dict[str, Any]:
+        """Return analyst price targets."""
+        t = ticker.upper()
+        tk = yf.Ticker(t)
+        info = tk.info or {}
+        targets = {
+            "ticker": t,
+            "current_price": info.get("currentPrice"),
+            "target_low": info.get("targetLowPrice"),
+            "target_mean": info.get("targetMeanPrice"),
+            "target_median": info.get("targetMedianPrice"),
+            "target_high": info.get("targetHighPrice"),
+            "number_of_analysts": info.get("numberOfAnalystOpinions"),
+            "recommendation_key": info.get("recommendationKey"),
+        }
+        logger.info("yfinance: %s analyst targets — mean=%s median=%s", t, targets["target_mean"], targets["target_median"])
+        return targets
+
+    def get_news(self, ticker: str) -> Dict[str, Any]:
+        """Return recent news headlines for a ticker."""
+        t = ticker.upper()
+        tk = yf.Ticker(t)
+        raw_news = tk.news or []
+        articles = []
+        for item in raw_news:
+            content = item.get("content") or item
+            canonical = content.get("canonicalUrl") or {}
+            provider = content.get("provider") or {}
+            articles.append({
+                "title": content.get("title") or item.get("title"),
+                "publisher": provider.get("displayName") or item.get("publisher"),
+                "link": canonical.get("url") or item.get("link"),
+                "published": content.get("pubDate") or item.get("providerPublishTime"),
+                "summary": content.get("summary"),
+            })
+        logger.info("yfinance: %s — %d news articles", t, len(articles))
+        return {
+            "ticker": t,
+            "news": articles,
+        }

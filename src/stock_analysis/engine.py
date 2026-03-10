@@ -332,3 +332,15 @@ class OptionEngine:
             "source": "yfinance",
             "sources": yf.urls,
         }
+
+    def get_option_chain(self, ticker: str, expiration: Optional[str] = None) -> Dict[str, Any]:
+        return self._yfinance.get_option_chain(ticker, expiration)
+
+    def get_recommendations(self, ticker: str) -> Dict[str, Any]:
+        return self._yfinance.get_recommendations(ticker)
+
+    def get_analyst_targets(self, ticker: str) -> Dict[str, Any]:
+        return self._yfinance.get_analyst_targets(ticker)
+
+    def get_news(self, ticker: str) -> Dict[str, Any]:
+        return self._yfinance.get_news(ticker)

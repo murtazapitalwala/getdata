@@ -187,6 +187,65 @@ def technicals(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.get("/options-chain")
+def options_chain(
+    ticker: str = Query(..., description="Ticker symbol, e.g. AAPL"),
+    expiration: str | None = Query(None, description="Expiration date YYYY-MM-DD; omit for nearest"),
+):
+    logger.info("Fetching option chain for %s exp=%s", ticker, expiration)
+    try:
+        result = engine.get_option_chain(ticker, expiration)
+        logger.info("Option chain OK for %s: exp=%s calls=%d puts=%d",
+                     ticker, result["expiration"], len(result["calls"]), len(result["puts"]))
+        return result
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Option chain FAILED for %s", ticker)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/recommendations")
+def recommendations(
+    ticker: str = Query(..., description="Ticker symbol, e.g. GOOG"),
+):
+    logger.info("Fetching recommendations for %s", ticker)
+    try:
+        result = engine.get_recommendations(ticker)
+        logger.info("Recommendations OK for %s: %d recs, %d upgrades",
+                     ticker, len(result["recommendations"]), len(result["upgrades_downgrades"]))
+        return result
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Recommendations FAILED for %s", ticker)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/analyst-targets")
+def analyst_targets(
+    ticker: str = Query(..., description="Ticker symbol, e.g. MSFT"),
+):
+    logger.info("Fetching analyst targets for %s", ticker)
+    try:
+        result = engine.get_analyst_targets(ticker)
+        logger.info("Analyst targets OK for %s: mean=%s", ticker, result.get("target_mean"))
+        return result
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Analyst targets FAILED for %s", ticker)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/news")
+def news(
+    ticker: str = Query(..., description="Ticker symbol, e.g. TSLA"),
+):
+    logger.info("Fetching news for %s", ticker)
+    try:
+        result = engine.get_news(ticker)
+        logger.info("News OK for %s: %d articles", ticker, len(result["news"]))
+        return result
+    except Exception as e:  # noqa: BLE001
+        logger.exception("News FAILED for %s", ticker)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 def main() -> None:
     import uvicorn
 
