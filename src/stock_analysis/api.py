@@ -1,10 +1,23 @@
 from __future__ import annotations
 
+import subprocess
 from datetime import date
 
 from fastapi import FastAPI, HTTPException, Query
 
 from .engine import OptionEngine
+
+def _git_sha() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short=7", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        return "unknown"
+
+_GIT_COMMIT = _git_sha()
 
 app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "https://getdata-uufz.onrender.com"}])
 engine = OptionEngine()
@@ -13,6 +26,11 @@ engine = OptionEngine()
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/version")
+def version():
+    return {"commit": _GIT_COMMIT}
 
 
 @app.get("/price")
