@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import yfinance as yf
 
 logger = logging.getLogger(__name__)
+
+_MAX_RETRIES = 3
+_BACKOFF_BASE_S = 2.0
+
+# Simple TTL cache: key -> (timestamp, data)
+_cache: Dict[str, Tuple[float, Any]] = {}
+_CACHE_TTL_S = 120  # 2 minutes
 
 
 @dataclass(frozen=True)
@@ -118,15 +126,36 @@ class YFinanceSource:
     def get_option_chain(self, ticker: str, expiration: Optional[str] = None) -> Dict[str, Any]:
         """Return option chain for a given expiration (or nearest if omitted)."""
         t = ticker.upper()
-        tk = yf.Ticker(t)
-        expirations = tk.options
-        logger.info("yfinance: %s has %d option expirations", t, len(expirations))
-        if not expirations:
-            raise RuntimeError(f"No options available for {t}")
+        cache_key = f"chain:{t}:{expiration or ''}"
+        now = time.time()
+        if cache_key in _cache:
+            ts, cached = _cache[cache_key]
+            if now - ts < _CACHE_TTL_S:
+                logger.info("yfinance: cache hit for %s exp=%s", t, expiration)
+                return cached
 
-        exp = expiration if expiration and expiration in expirations else expirations[0]
-        chain = tk.option_chain(exp)
-        logger.info("yfinance: %s chain for %s — %d calls, %d puts", t, exp, len(chain.calls), len(chain.puts))
+        last_err: Optional[Exception] = None
+        for attempt in range(1, _MAX_RETRIES + 1):
+            try:
+                tk = yf.Ticker(t)
+                expirations = tk.options
+                logger.info("yfinance: %s has %d option expirations (attempt %d)", t, len(expirations), attempt)
+                if not expirations:
+                    raise RuntimeError(f"No options available for {t}")
+
+                exp = expiration if expiration and expiration in expirations else expirations[0]
+                chain = tk.option_chain(exp)
+                logger.info("yfinance: %s chain for %s — %d calls, %d puts", t, exp, len(chain.calls), len(chain.puts))
+                break
+            except Exception as e:
+                last_err = e
+                if attempt < _MAX_RETRIES:
+                    wait = _BACKOFF_BASE_S * (2 ** (attempt - 1))  # 2s, 4s
+                    logger.warning("yfinance: %s attempt %d failed (%s) — retrying in %.1fs", t, attempt, e, wait)
+                    time.sleep(wait)
+                else:
+                    logger.error("yfinance: %s all %d attempts failed", t, _MAX_RETRIES)
+                    raise
 
         def _df_to_records(df) -> List[Dict[str, Any]]:
             import math
@@ -142,13 +171,15 @@ class YFinanceSource:
                 })
             return records
 
-        return {
+        result = {
             "ticker": t,
             "expiration": exp,
             "expirations": list(expirations),
             "calls": _df_to_records(chain.calls),
             "puts": _df_to_records(chain.puts),
         }
+        _cache[cache_key] = (time.time(), result)
+        return result
 
     def get_recommendations(self, ticker: str) -> Dict[str, Any]:
         """Return analyst recommendations and upgrades/downgrades."""

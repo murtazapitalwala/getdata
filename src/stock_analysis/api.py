@@ -200,6 +200,9 @@ def options_chain(
         return result
     except Exception as e:  # noqa: BLE001
         logger.exception("Option chain FAILED for %s", ticker)
+        msg = str(e).lower()
+        if "too many requests" in msg or "rate limit" in msg or "429" in msg:
+            raise HTTPException(status_code=429, detail=str(e))
         raise HTTPException(status_code=400, detail=str(e))
 
 
