@@ -199,10 +199,11 @@ class AlphaVantage:
     def _classify_error(msg: str) -> str:
         """Return 'daily', 'minute', or 'unknown' based on the AV error message."""
         lower = msg.lower()
-        if "25 per day" in lower or "daily" in lower:
-            return "daily"
+        # Check minute FIRST — the per-minute message also contains "25 … per day"
         if "per minute" in lower or "call frequency" in lower:
             return "minute"
+        if "25 per day" in lower or "daily" in lower:
+            return "daily"
         return "unknown"
 
     def _indicator(self, function: str, symbol: str, extra: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
