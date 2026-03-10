@@ -185,6 +185,15 @@ def debug_keys():
     }
 
 
+@app.post("/debug/reset-keys")
+def reset_keys():
+    """Force-clear all exhausted keys."""
+    from .sources.alpha_vantage import _key_manager
+    _key_manager._exhausted.clear()
+    _key_manager._current_idx = 0
+    return {"status": "reset", "keys_remaining": _key_manager.keys_remaining}
+
+
 def main() -> None:
     import uvicorn
 
