@@ -140,6 +140,16 @@ def covered_call(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.get("/technicals")
+def technicals(
+    ticker: str = Query(..., description="Ticker symbol, e.g. META"),
+):
+    try:
+        return engine.get_technicals(ticker)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 def main() -> None:
     import uvicorn
 

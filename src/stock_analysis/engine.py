@@ -11,12 +11,19 @@ from .options_math import (
     implied_vol_call_bisect,
     implied_vol_put_bisect,
 )
+from .sources.alpha_vantage import AlphaVantage
 from .sources.nasdaq import Nasdaq
 
 
 class OptionEngine:
-    def __init__(self, *, nasdaq: Optional[Nasdaq] = None) -> None:
+    def __init__(
+        self,
+        *,
+        nasdaq: Optional[Nasdaq] = None,
+        alpha_vantage: Optional[AlphaVantage] = None,
+    ) -> None:
         self._nasdaq = nasdaq or Nasdaq()
+        self._alpha_vantage = alpha_vantage or AlphaVantage()
 
     def get_latest_price(self, ticker: str, asset_class: str = "stocks") -> Dict[str, Any]:
         price, url = self._nasdaq.get_underlying_from_option_chain(ticker, asset_class=asset_class)
@@ -303,4 +310,21 @@ class OptionEngine:
             "annualized_max_return_pct": float(annualized_max_return_pct) if annualized_max_return_pct is not None else None,
             "cost_basis_total": float(cost_basis_total),
             "source": chosen.get("source"),
+        }
+
+    def get_technicals(self, ticker: str) -> Dict[str, Any]:
+        av = self._alpha_vantage.get_technicals(ticker)
+        return {
+            "ticker": av.ticker,
+            "latest_price": av.latest_price,
+            "latest_date": av.latest_date,
+            "sma_20": av.sma_20,
+            "sma_50": av.sma_50,
+            "sma_100": av.sma_100,
+            "sma_200": av.sma_200,
+            "rsi_14": av.rsi_14,
+            "macd_line": av.macd_line,
+            "signal_line": av.signal_line,
+            "macd_histogram": av.macd_histogram,
+            "sources": av.urls,
         }

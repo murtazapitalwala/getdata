@@ -7,8 +7,8 @@ from datetime import date as _date
 
 from .dates import parse_ymd
 from .engine import OptionEngine
+from .sources.alpha_vantage import AlphaVantage
 from .sources.nasdaq import Nasdaq
-from .sources.yahoo_finance import YahooFinance
 
 
 def _json_print(obj) -> None:
@@ -28,13 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
     close = sub.add_parser("close", help="Get the close price for a specific trading date")
     close.add_argument("--ticker", required=True)
     close.add_argument("--date", required=True, help="YYYY-MM-DD")
-    close.add_argument("--source", default="yahoo", choices=["yahoo"])
 
     put = sub.add_parser("put-premium", help="Get put option premium for strike/expiry")
     put.add_argument("--ticker", required=True)
     put.add_argument("--expiry", required=True, help="YYYY-MM-DD")
     put.add_argument("--strike", required=True, type=float)
-    put.add_argument("--source", default="nasdaq", choices=["nasdaq", "yahoo"])
 
     sfd = sub.add_parser("strike-from-delta", help="Find put strike closest to a target delta (approx via Black–Scholes)")
     sfd.add_argument("--ticker", required=True)
@@ -98,14 +96,17 @@ def build_parser() -> argparse.ArgumentParser:
     cc.add_argument("--r", type=float, default=0.0)
     cc.add_argument("--q", type=float, default=0.0)
 
+    tech = sub.add_parser("technicals", help="Get SMA (20/50/100/200), RSI, and MACD for a ticker")
+    tech.add_argument("--ticker", required=True)
+
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    yahoo = YahooFinance()
     nasdaq = Nasdaq()
-    engine = OptionEngine(nasdaq=nasdaq)
+    alpha_vantage = AlphaVantage()
+    engine = OptionEngine(nasdaq=nasdaq, alpha_vantage=alpha_vantage)
 
     if args.cmd == "case":
         ticker = args.ticker
@@ -115,11 +116,10 @@ def main(argv: list[str] | None = None) -> int:
 
         close_val: float
         try:
-            q = yahoo.get_close_on_date(ticker, trading_date)
+            q = alpha_vantage.get_close_on_date(ticker, trading_date)
             close_val = q.close
-        except Exception as e:  # noqa: BLE001
-            # Yahoo frequently rate-limits. For the purpose of this compact report,
-            # fall back to Nasdaq's last trade (note: not guaranteed to be the historical close).
+        except Exception:  # noqa: BLE001
+            # Fall back to Nasdaq's last trade price if Alpha Vantage fails.
             close_val, _ = nasdaq.get_last_trade_price(ticker)
 
         p = nasdaq.get_put_premium(ticker, expiry, strike)
@@ -138,9 +138,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "close":
-        if args.source != "yahoo":
-            raise RuntimeError("close currently only supports --source yahoo")
-        q = yahoo.get_close_on_date(args.ticker, parse_ymd(args.date))
+        q = alpha_vantage.get_close_on_date(args.ticker, parse_ymd(args.date))
         _json_print(asdict(q))
         return 0
 
@@ -242,13 +240,24 @@ def main(argv: list[str] | None = None) -> int:
         _json_print(rep)
         return 0
 
+    if args.cmd == "technicals":
+        rep = engine.get_technicals(args.ticker)
+        print(f"Ticker symbol {args.ticker.upper()}")
+        print(f"  Price:    {rep['latest_price']} (as of {rep['latest_date']})")
+        print(f"  SMA  20:  {rep['sma_20']}")
+        print(f"  SMA  50:  {rep['sma_50']}")
+        print(f"  SMA 100:  {rep['sma_100']}")
+        print(f"  SMA 200:  {rep['sma_200']}")
+        print(f"  RSI  14:  {rep['rsi_14']}")
+        print(f"  MACD Line:      {rep['macd_line']}")
+        print(f"  Signal Line:    {rep['signal_line']}")
+        print(f"  MACD Histogram: {rep['macd_histogram']}")
+        print(f"Sources: {', '.join(rep['sources'])}")
+        return 0
+
     if args.cmd == "put-premium":
-        if args.source == "nasdaq":
-            p = nasdaq.get_put_premium(args.ticker, parse_ymd(args.expiry), args.strike)
-            _json_print(asdict(p))
-        else:
-            p = yahoo.get_put_premium(args.ticker, parse_ymd(args.expiry), args.strike)
-            _json_print(asdict(p))
+        p = nasdaq.get_put_premium(args.ticker, parse_ymd(args.expiry), args.strike)
+        _json_print(asdict(p))
         return 0
 
     raise RuntimeError(f"Unknown cmd: {args.cmd}")
