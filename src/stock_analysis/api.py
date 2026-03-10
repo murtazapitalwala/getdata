@@ -26,7 +26,7 @@ def _git_sha() -> str:
 
 _GIT_COMMIT = _git_sha()
 
-app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "https://getdata-uufz.onrender.com"}])
+app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "http://localhost:8080"}])
 engine = OptionEngine()
 
 @app.middleware("http")
@@ -190,19 +190,17 @@ def technicals(
 @app.get("/options-chain")
 def options_chain(
     ticker: str = Query(..., description="Ticker symbol, e.g. AAPL"),
-    expiration: str | None = Query(None, description="Expiration date YYYY-MM-DD; omit for nearest"),
+    weeks_out: int = Query(3, description="Weeks of expirations to return (1-8, default 3)"),
+    asset_class: str = Query("stocks", description="Asset class: stocks or etf"),
 ):
-    logger.info("Fetching option chain for %s exp=%s", ticker, expiration)
+    weeks_out = min(max(weeks_out, 1), 8)
+    logger.info("Fetching Nasdaq option chain for %s weeks_out=%d", ticker, weeks_out)
     try:
-        result = engine.get_option_chain(ticker, expiration)
-        logger.info("Option chain OK for %s: exp=%s calls=%d puts=%d",
-                     ticker, result["expiration"], len(result["calls"]), len(result["puts"]))
+        result = engine.get_nasdaq_option_chain(ticker, weeks_out=weeks_out, asset_class=asset_class)
+        logger.info("Nasdaq option chain OK for %s: %d expirations", ticker, len(result["expirations"]))
         return result
     except Exception as e:  # noqa: BLE001
         logger.exception("Option chain FAILED for %s", ticker)
-        msg = str(e).lower()
-        if "too many requests" in msg or "rate limit" in msg or "429" in msg:
-            raise HTTPException(status_code=429, detail=str(e))
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -246,6 +244,38 @@ def news(
         return result
     except Exception as e:  # noqa: BLE001
         logger.exception("News FAILED for %s", ticker)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/nasdaq-analyst-targets")
+def nasdaq_analyst_targets(
+    ticker: str = Query(..., description="Ticker symbol, e.g. MSFT"),
+    asset_class: str = Query("stocks", description="Asset class: stocks or etf"),
+):
+    logger.info("Fetching Nasdaq analyst targets for %s", ticker)
+    try:
+        result = engine.get_nasdaq_analyst_targets(ticker, asset_class=asset_class)
+        logger.info("Nasdaq analyst targets OK for %s: target=%s", ticker, result.get("one_year_target"))
+        return result
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Nasdaq analyst targets FAILED for %s", ticker)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/analyst-ratings")
+def analyst_ratings(
+    ticker: str = Query(..., description="Ticker symbol, e.g. NFLX"),
+):
+    logger.info("Fetching analyst ratings for %s", ticker)
+    try:
+        result = engine.get_analyst_ratings(ticker)
+        logger.info(
+            "Analyst ratings OK for %s: consensus=%s target_avg=%s analysts=%s",
+            ticker, result.get("consensus"), result.get("price_target_average"), result.get("total_analysts"),
+        )
+        return result
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Analyst ratings FAILED for %s", ticker)
         raise HTTPException(status_code=400, detail=str(e))
 
 

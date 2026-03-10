@@ -13,6 +13,7 @@ from .options_math import (
 )
 from .sources.alpha_vantage import AlphaVantage
 from .sources.nasdaq import Nasdaq
+from .sources.stockanalysis import StockAnalysis
 from .sources.yfinance_source import YFinanceSource
 
 
@@ -23,10 +24,12 @@ class OptionEngine:
         nasdaq: Optional[Nasdaq] = None,
         alpha_vantage: Optional[AlphaVantage] = None,
         yfinance: Optional[YFinanceSource] = None,
+        stockanalysis: Optional[StockAnalysis] = None,
     ) -> None:
         self._nasdaq = nasdaq or Nasdaq()
         self._alpha_vantage = alpha_vantage or AlphaVantage()
         self._yfinance = yfinance or YFinanceSource()
+        self._stockanalysis = stockanalysis or StockAnalysis()
 
     def get_latest_price(self, ticker: str, asset_class: str = "stocks") -> Dict[str, Any]:
         price, url = self._nasdaq.get_underlying_from_option_chain(ticker, asset_class=asset_class)
@@ -336,11 +339,66 @@ class OptionEngine:
     def get_option_chain(self, ticker: str, expiration: Optional[str] = None) -> Dict[str, Any]:
         return self._yfinance.get_option_chain(ticker, expiration)
 
+    def get_nasdaq_option_chain(
+        self,
+        ticker: str,
+        weeks_out: int = 3,
+        asset_class: str = "stocks",
+    ) -> Dict[str, Any]:
+        """Fetch full options chain for the next weeks_out weeks via Nasdaq."""
+        result, url = self._nasdaq.get_full_chain(
+            ticker, weeks_out=weeks_out, asset_class=asset_class
+        )
+        return {
+            "ticker": ticker.upper(),
+            "weeks_out": weeks_out,
+            "underlying_price": result["underlying_price"],
+            "expirations": result["expirations"],
+            "source": url,
+        }
+
+    def get_nasdaq_analyst_targets(
+        self,
+        ticker: str,
+        asset_class: str = "stocks",
+    ) -> Dict[str, Any]:
+        result, url = self._nasdaq.get_analyst_targets(ticker, asset_class=asset_class)
+        result["source"] = url
+        return result
+
     def get_recommendations(self, ticker: str) -> Dict[str, Any]:
         return self._yfinance.get_recommendations(ticker)
 
     def get_analyst_targets(self, ticker: str) -> Dict[str, Any]:
-        return self._yfinance.get_analyst_targets(ticker)
+        sa = self._stockanalysis.get_analyst_ratings(ticker)
+
+        current_price: Optional[float] = None
+        try:
+            current_price, _ = self._nasdaq.get_last_trade_price(ticker)
+        except Exception:
+            pass
+
+        return {
+            "ticker": ticker.upper(),
+            "current_price": current_price,
+            "consensus": sa.get("consensus"),
+            "strong_buy": sa.get("strong_buy"),
+            "buy": sa.get("buy"),
+            "hold": sa.get("hold"),
+            "sell": sa.get("sell"),
+            "strong_sell": sa.get("strong_sell"),
+            "total_analysts": sa.get("total_analysts"),
+            "price_target_low": sa.get("price_target_low"),
+            "price_target_average": sa.get("price_target_average"),
+            "price_target_median": sa.get("price_target_median"),
+            "price_target_high": sa.get("price_target_high"),
+            "price_target_count": sa.get("price_target_count"),
+            "recent_ratings": sa.get("recent_ratings"),
+            "source": sa.get("source"),
+        }
 
     def get_news(self, ticker: str) -> Dict[str, Any]:
         return self._yfinance.get_news(ticker)
+
+    def get_analyst_ratings(self, ticker: str) -> Dict[str, Any]:
+        return self._stockanalysis.get_analyst_ratings(ticker)
