@@ -315,38 +315,7 @@ class OptionEngine:
             "source": chosen.get("source"),
         }
 
-    def get_technicals(self, ticker: str, source: Optional[str] = None) -> Dict[str, Any]:
-        """Return technicals from a specific source, or try AV then yfinance."""
-        if source == "alphavantage":
-            return self._technicals_from_av(ticker)
-        if source == "yfinance":
-            return self._technicals_from_yf(ticker)
-
-        # Default: try AV first, fall back to yfinance
-        try:
-            return self._technicals_from_av(ticker)
-        except Exception:
-            return self._technicals_from_yf(ticker)
-
-    def _technicals_from_av(self, ticker: str) -> Dict[str, Any]:
-        av = self._alpha_vantage.get_technicals(ticker)
-        return {
-            "ticker": av.ticker,
-            "latest_price": av.latest_price,
-            "latest_date": av.latest_date,
-            "sma_20": av.sma_20,
-            "sma_50": av.sma_50,
-            "sma_100": av.sma_100,
-            "sma_200": av.sma_200,
-            "rsi_14": av.rsi_14,
-            "macd_line": av.macd_line,
-            "signal_line": av.signal_line,
-            "macd_histogram": av.macd_histogram,
-            "source": "alphavantage",
-            "sources": av.urls,
-        }
-
-    def _technicals_from_yf(self, ticker: str) -> Dict[str, Any]:
+    def get_technicals(self, ticker: str) -> Dict[str, Any]:
         yf = self._yfinance.get_technicals(ticker)
         return {
             "ticker": yf.ticker,

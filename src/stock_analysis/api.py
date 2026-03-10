@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import logging
 import subprocess
 from datetime import date
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 
 from .engine import OptionEngine
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 def _git_sha() -> str:
     try:
@@ -21,6 +28,14 @@ _GIT_COMMIT = _git_sha()
 
 app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "https://getdata-uufz.onrender.com"}])
 engine = OptionEngine()
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info("→ %s %s", request.method, request.url.path)
+    response = await call_next(request)
+    logger.info("← %s %s %s", request.method, request.url.path, response.status_code)
+    return response
+
 
 @app.get("/")
 @app.get("/health")
@@ -161,76 +176,15 @@ def covered_call(
 @app.get("/technicals")
 def technicals(
     ticker: str = Query(..., description="Ticker symbol, e.g. META"),
-    source: str = Query(None, description="Data source: alphavantage or yfinance (default: auto-fallback)"),
 ):
+    logger.info("Fetching technicals for %s", ticker)
     try:
-        return engine.get_technicals(ticker, source=source)
+        result = engine.get_technicals(ticker)
+        logger.info("Technicals OK for %s: price=%s date=%s", ticker, result.get("latest_price"), result.get("latest_date"))
+        return result
     except Exception as e:  # noqa: BLE001
+        logger.exception("Technicals FAILED for %s", ticker)
         raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.get("/technicals/alphavantage")
-def technicals_av(
-    ticker: str = Query(..., description="Ticker symbol, e.g. META"),
-):
-    try:
-        return engine.get_technicals(ticker, source="alphavantage")
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.get("/technicals/yfinance")
-def technicals_yf(
-    ticker: str = Query(..., description="Ticker symbol, e.g. META"),
-):
-    try:
-        return engine.get_technicals(ticker, source="yfinance")
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.get("/debug/keys")
-def debug_keys():
-    """Show key manager state and test one raw API call."""
-    from .sources.alpha_vantage import _key_manager, AV_BASE_URL
-    from .http import HttpClient
-    http = HttpClient()
-    # Try first available key with a raw call
-    try:
-        key = _key_manager.get_key()
-    except Exception as e:
-        return {
-            "error": str(e),
-            "total_keys": len(_key_manager._keys),
-            "exhausted_count": len(_key_manager._exhausted),
-            "exhausted_keys_last4": [k[-4:] for k in _key_manager._exhausted],
-        }
-    params = {
-        "function": "TIME_SERIES_DAILY",
-        "symbol": "MSFT",
-        "outputsize": "compact",
-        "apikey": key,
-    }
-    data, _ = http.get_json(AV_BASE_URL, params=params)
-    info_msg = data.get("Information") or data.get("Note") or None
-    return {
-        "current_key_last4": key[-4:],
-        "total_keys": len(_key_manager._keys),
-        "exhausted_count": len(_key_manager._exhausted),
-        "exhausted_keys_last4": [k[-4:] for k in _key_manager._exhausted],
-        "raw_response_keys": list(data.keys())[:5],
-        "info_or_note": info_msg,
-        "has_time_series": "Time Series (Daily)" in data,
-    }
-
-
-@app.post("/debug/reset-keys")
-def reset_keys():
-    """Force-clear all exhausted keys."""
-    from .sources.alpha_vantage import _key_manager
-    _key_manager._exhausted.clear()
-    _key_manager._current_idx = 0
-    return {"status": "reset", "keys_remaining": _key_manager.keys_remaining}
 
 
 def main() -> None:

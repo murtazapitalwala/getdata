@@ -84,8 +84,11 @@ class YFinanceSource:
         import yfinance as yf
 
         t = ticker.upper()
+        logger.info("yfinance: downloading 1y daily data for %s", t)
         df = yf.download(t, period="1y", interval="1d", progress=False, auto_adjust=True)
+        logger.info("yfinance: got %d rows for %s", len(df), t)
         if df.empty:
+            logger.error("yfinance: no data returned for %s", t)
             raise RuntimeError(f"yfinance returned no data for {t}")
 
         close_col = df["Close"]
@@ -94,8 +97,9 @@ class YFinanceSource:
         closes = close_col.dropna().tolist()
         latest_date = str(df.index[-1].date())
         latest_price = round(closes[-1], 4)
+        logger.info("yfinance: %s — %d closes, latest=%s price=%s", t, len(closes), latest_date, latest_price)
 
-        return Technicals(
+        result = Technicals(
             ticker=t,
             latest_price=latest_price,
             latest_date=latest_date,
@@ -107,3 +111,6 @@ class YFinanceSource:
             **_macd(closes),
             urls=[f"https://finance.yahoo.com/quote/{t}"],
         )
+        logger.info("yfinance: %s indicators — SMA20=%s SMA50=%s SMA100=%s SMA200=%s RSI=%s MACD=%s",
+                     t, result.sma_20, result.sma_50, result.sma_100, result.sma_200, result.rsi_14, result.macd)
+        return result
