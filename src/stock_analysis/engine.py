@@ -13,6 +13,7 @@ from .options_math import (
 )
 from .sources.alpha_vantage import AlphaVantage
 from .sources.nasdaq import Nasdaq
+from .sources.yfinance_source import YFinanceSource
 
 
 class OptionEngine:
@@ -21,9 +22,11 @@ class OptionEngine:
         *,
         nasdaq: Optional[Nasdaq] = None,
         alpha_vantage: Optional[AlphaVantage] = None,
+        yfinance: Optional[YFinanceSource] = None,
     ) -> None:
         self._nasdaq = nasdaq or Nasdaq()
         self._alpha_vantage = alpha_vantage or AlphaVantage()
+        self._yfinance = yfinance or YFinanceSource()
 
     def get_latest_price(self, ticker: str, asset_class: str = "stocks") -> Dict[str, Any]:
         price, url = self._nasdaq.get_underlying_from_option_chain(ticker, asset_class=asset_class)
@@ -312,7 +315,20 @@ class OptionEngine:
             "source": chosen.get("source"),
         }
 
-    def get_technicals(self, ticker: str) -> Dict[str, Any]:
+    def get_technicals(self, ticker: str, source: Optional[str] = None) -> Dict[str, Any]:
+        """Return technicals from a specific source, or try AV then yfinance."""
+        if source == "alphavantage":
+            return self._technicals_from_av(ticker)
+        if source == "yfinance":
+            return self._technicals_from_yf(ticker)
+
+        # Default: try AV first, fall back to yfinance
+        try:
+            return self._technicals_from_av(ticker)
+        except Exception:
+            return self._technicals_from_yf(ticker)
+
+    def _technicals_from_av(self, ticker: str) -> Dict[str, Any]:
         av = self._alpha_vantage.get_technicals(ticker)
         return {
             "ticker": av.ticker,
@@ -326,5 +342,24 @@ class OptionEngine:
             "macd_line": av.macd_line,
             "signal_line": av.signal_line,
             "macd_histogram": av.macd_histogram,
+            "source": "alphavantage",
             "sources": av.urls,
+        }
+
+    def _technicals_from_yf(self, ticker: str) -> Dict[str, Any]:
+        yf = self._yfinance.get_technicals(ticker)
+        return {
+            "ticker": yf.ticker,
+            "latest_price": yf.latest_price,
+            "latest_date": yf.latest_date,
+            "sma_20": yf.sma_20,
+            "sma_50": yf.sma_50,
+            "sma_100": yf.sma_100,
+            "sma_200": yf.sma_200,
+            "rsi_14": yf.rsi_14,
+            "macd_line": yf.macd_line,
+            "signal_line": yf.signal_line,
+            "macd_histogram": yf.macd_histogram,
+            "source": "yfinance",
+            "sources": yf.urls,
         }

@@ -161,9 +161,30 @@ def covered_call(
 @app.get("/technicals")
 def technicals(
     ticker: str = Query(..., description="Ticker symbol, e.g. META"),
+    source: str = Query(None, description="Data source: alphavantage or yfinance (default: auto-fallback)"),
 ):
     try:
-        return engine.get_technicals(ticker)
+        return engine.get_technicals(ticker, source=source)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/technicals/alphavantage")
+def technicals_av(
+    ticker: str = Query(..., description="Ticker symbol, e.g. META"),
+):
+    try:
+        return engine.get_technicals(ticker, source="alphavantage")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/technicals/yfinance")
+def technicals_yf(
+    ticker: str = Query(..., description="Ticker symbol, e.g. META"),
+):
+    try:
+        return engine.get_technicals(ticker, source="yfinance")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(e))
 

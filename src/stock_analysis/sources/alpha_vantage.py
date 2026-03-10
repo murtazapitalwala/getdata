@@ -190,22 +190,6 @@ def _macd(closes: List[float], fast: int = 12, slow: int = 26, signal: int = 9) 
     }
 
 
-def _yfinance_closes(ticker: str) -> tuple:
-    """Return (closes, latest_date, latest_price) from yfinance (1 year of daily data)."""
-    import yfinance as yf
-    df = yf.download(ticker, period="1y", interval="1d", progress=False, auto_adjust=True)
-    if df.empty:
-        raise RuntimeError(f"yfinance returned no data for {ticker}")
-    # Handle both single-column and multi-level column DataFrames
-    close_col = df["Close"]
-    if hasattr(close_col, "columns"):
-        close_col = close_col.iloc[:, 0]
-    closes = close_col.dropna().tolist()
-    latest_date = str(df.index[-1].date())
-    latest_price = round(closes[-1], 4)
-    return closes, latest_date, latest_price
-
-
 class AlphaVantage:
     def __init__(self, key_manager: Optional[KeyManager] = None, http: Optional[HttpClient] = None) -> None:
         self._km = key_manager or _key_manager
@@ -350,40 +334,24 @@ class AlphaVantage:
         )
 
     def get_technicals(self, ticker: str) -> Technicals:
-        """Fetch daily prices and compute all indicators locally.
-
-        Tries Alpha Vantage first; falls back to yfinance if AV is blocked.
-        """
+        """Fetch daily prices in ONE API call and compute all indicators locally."""
         t = ticker.upper()
+        data = self._indicator("TIME_SERIES_DAILY", ticker, {"outputsize": "compact"})
+        ts = data.get("Time Series (Daily)")
+        if not ts or not isinstance(ts, dict):
+            raise RuntimeError(f"No daily price data returned for {t} from Alpha Vantage")
 
-        # ── Try Alpha Vantage first ──────────────────────────────────
-        try:
-            data = self._indicator("TIME_SERIES_DAILY", ticker, {"outputsize": "compact"})
-            ts = data.get("Time Series (Daily)")
-            if not ts or not isinstance(ts, dict):
-                raise RuntimeError("No daily data")
-            sorted_dates = sorted(ts.keys())
-            closes = [float(ts[d]["4. close"]) for d in sorted_dates]
-            latest_date = sorted_dates[-1] if sorted_dates else None
-            latest_price = closes[-1] if closes else None
-            source = "alphavantage"
-        except (AllKeysExhausted, RuntimeError):
-            logger.info("Alpha Vantage unavailable — falling back to yfinance for %s", t)
-            closes, latest_date, latest_price = _yfinance_closes(t)
-            source = "yfinance"
+        sorted_dates = sorted(ts.keys())
+        closes = [float(ts[d]["4. close"]) for d in sorted_dates]
+        latest_date = sorted_dates[-1] if sorted_dates else None
+        latest_price = closes[-1] if closes else None
 
-        url = f"https://finance.yahoo.com/quote/{t}" if source == "yfinance" else (
-            f"{AV_BASE_URL}?function=TIME_SERIES_DAILY&symbol={t}&outputsize=compact"
-        )
+        url = f"{AV_BASE_URL}?function=TIME_SERIES_DAILY&symbol={t}&outputsize=compact"
         urls = [url]
 
-        # SMA 200 needs ~200 trading days; yfinance gives 250 but compact AV only 100.
-        if source == "yfinance" and len(closes) >= 200:
-            sma_200 = _sma(closes, 200)
-        else:
-            sma_200 = self.get_sma(ticker, 200) if source == "alphavantage" else None
-            if sma_200 is not None:
-                urls.append(f"{AV_BASE_URL}?function=SMA&symbol={t}&interval=daily&time_period=200&series_type=close")
+        sma_200 = self.get_sma(ticker, 200)
+        if sma_200 is not None:
+            urls.append(f"{AV_BASE_URL}?function=SMA&symbol={t}&interval=daily&time_period=200&series_type=close")
 
         return Technicals(
             ticker=t,
