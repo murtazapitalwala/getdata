@@ -199,9 +199,12 @@ class AlphaVantage:
     def _classify_error(msg: str) -> str:
         """Return 'daily', 'minute', or 'unknown' based on the AV error message."""
         lower = msg.lower()
-        # Check minute FIRST — the per-minute message also contains "25 … per day"
-        if "per minute" in lower or "call frequency" in lower:
+        # Burst / per-second / per-minute throttle — NOT a daily exhaustion.
+        # AV message: "…spread out…more sparingly (1 request per second)…"
+        # or older: "…5 calls per minute…"
+        if "per second" in lower or "per minute" in lower or "call frequency" in lower or "sparingly" in lower:
             return "minute"
+        # True daily exhaustion (only if none of the above matched)
         if "25 per day" in lower or "daily" in lower:
             return "daily"
         return "unknown"
@@ -229,8 +232,8 @@ class AlphaVantage:
                 continue  # retry with next key
 
             if kind == "minute":
-                logger.info("Per-minute limit on key …%s — sleeping 13 s", key[-4:])
-                time.sleep(13)
+                logger.info("Rate-limited on key …%s — sleeping 2 s", key[-4:])
+                time.sleep(2)
                 continue  # retry same key
 
             # Unknown error — treat as daily to be safe
