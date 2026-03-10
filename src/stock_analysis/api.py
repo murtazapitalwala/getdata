@@ -27,6 +27,7 @@ def _git_sha() -> str:
 _GIT_COMMIT = _git_sha()
 
 app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "https://getdata-uufz.onrender.com"}])
+app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "http://localhost:8080"}])  # local override for testing
 engine = OptionEngine()
 
 @app.middleware("http")
@@ -236,11 +237,18 @@ def analyst_targets(
 @app.get("/news")
 def news(
     ticker: str = Query(..., description="Ticker symbol, e.g. TSLA"),
+    asset_class: str = Query("stocks", description="Asset class: stocks or etf"),
 ):
     logger.info("Fetching news for %s", ticker)
     try:
-        result = engine.get_news(ticker)
-        logger.info("News OK for %s: %d articles", ticker, len(result["news"]))
+        result = engine.get_news(ticker, asset_class=asset_class)
+        logger.info(
+            "News OK for %s: %d articles, sector=%s industry=%s",
+            ticker,
+            len(result["news"]),
+            (result.get("macro") or {}).get("sector"),
+            (result.get("macro") or {}).get("industry"),
+        )
         return result
     except Exception as e:  # noqa: BLE001
         logger.exception("News FAILED for %s", ticker)

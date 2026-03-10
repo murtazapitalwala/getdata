@@ -397,8 +397,11 @@ class OptionEngine:
             "source": sa.get("source"),
         }
 
-    def get_news(self, ticker: str) -> Dict[str, Any]:
-        return self._yfinance.get_news(ticker)
+    def get_news(self, ticker: str, asset_class: str = "stocks") -> Dict[str, Any]:
+        result, sources = self._nasdaq.get_news_and_macro(ticker, asset_class=asset_class)
+        result["sources"] = sources
+        result["source"] = "nasdaq"
+        return result
 
     def get_analyst_ratings(self, ticker: str) -> Dict[str, Any]:
         return self._stockanalysis.get_analyst_ratings(ticker)

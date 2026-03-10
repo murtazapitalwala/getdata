@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
+from xml.etree import ElementTree as ET
 
 import re
 
@@ -12,6 +13,7 @@ from ..http import HttpClient
 NASDAQ_OPTION_CHAIN_URL = "https://api.nasdaq.com/api/quote/{ticker}/option-chain"
 NASDAQ_QUOTE_URL = "https://api.nasdaq.com/api/quote/{ticker}/info"
 NASDAQ_SUMMARY_URL = "https://api.nasdaq.com/api/quote/{ticker}/summary"
+NASDAQ_NEWS_RSS_URL = "https://www.nasdaq.com/feed/rssoutbound?symbol={ticker}"
 
 
 @dataclass(frozen=True)
@@ -464,3 +466,92 @@ class Nasdaq:
             "ticker": ticker.upper(),
             "one_year_target": one_yr,
         }, meta.url
+
+    def get_news_and_macro(
+        self,
+        ticker: str,
+        *,
+        asset_class: str = "stocks",
+        limit: int = 25,
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Fetch ticker news from Nasdaq RSS and macro context from Nasdaq summary."""
+
+        def _parse_money(v: Any) -> Optional[float]:
+            if v is None:
+                return None
+            s = str(v).strip().replace("$", "").replace(",", "")
+            if not s or s in {"--", "N/A"}:
+                return None
+            try:
+                return float(s)
+            except ValueError:
+                return None
+
+        def _parse_hi_lo(v: Any) -> tuple[Optional[float], Optional[float]]:
+            s = str(v or "").replace("$", "").replace(",", "")
+            if "/" not in s:
+                return None, None
+            parts = [p.strip() for p in s.split("/", 1)]
+            return _parse_money(parts[0]), _parse_money(parts[1])
+
+        summary_url = NASDAQ_SUMMARY_URL.format(ticker=ticker.lower())
+        summary_data, summary_meta = self._http.get_json(summary_url, params={"assetclass": asset_class})
+        summary = ((summary_data.get("data") or {}).get("summaryData")) or {}
+
+        def _sv(key: str) -> Optional[str]:
+            return (summary.get(key) or {}).get("value")
+
+        day_high, day_low = _parse_hi_lo(_sv("TodayHighLow"))
+        w52_high, w52_low = _parse_hi_lo(_sv("FiftTwoWeekHighLow"))
+
+        macro = {
+            "exchange": _sv("Exchange"),
+            "sector": _sv("Sector"),
+            "industry": _sv("Industry"),
+            "market_cap": _parse_money(_sv("MarketCap")),
+            "one_year_target": _parse_money(_sv("OneYrTarget")),
+            "previous_close": _parse_money(_sv("PreviousClose")),
+            "day_high": day_high,
+            "day_low": day_low,
+            "fifty_two_week_high": w52_high,
+            "fifty_two_week_low": w52_low,
+            "share_volume": _parse_money(_sv("ShareVolume")),
+            "average_volume": _parse_money(_sv("AverageVolume")),
+        }
+
+        rss_url = NASDAQ_NEWS_RSS_URL.format(ticker=ticker.upper())
+        rss_text, _rss_meta = self._http.get_text(rss_url)
+
+        try:
+            root = ET.fromstring(rss_text)
+        except ET.ParseError as e:
+            raise RuntimeError(f"Failed to parse Nasdaq RSS feed for {ticker}: {e}") from e
+
+        news: list[dict[str, Any]] = []
+        for item in root.findall("./channel/item")[: max(1, int(limit))]:
+            title = item.findtext("title")
+            link = item.findtext("link")
+            description = item.findtext("description")
+            pub_date = item.findtext("pubDate")
+            creator = item.findtext("{http://purl.org/dc/elements/1.1/}creator")
+            category = item.findtext("category")
+            tickers_raw = item.findtext("{http://nasdaq.com/reference/feeds/1.0}tickers") or ""
+            tickers = [t.strip() for t in tickers_raw.split(",") if t.strip()]
+
+            news.append(
+                {
+                    "title": title,
+                    "publisher": creator,
+                    "link": link,
+                    "published": pub_date,
+                    "summary": description.strip() if isinstance(description, str) else description,
+                    "category": category,
+                    "tickers": tickers,
+                }
+            )
+
+        return {
+            "ticker": ticker.upper(),
+            "macro": macro,
+            "news": news,
+        }, [summary_meta.url, rss_url]
