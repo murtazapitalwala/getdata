@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import FastAPI, HTTPException, Query, Request
 
@@ -57,6 +57,41 @@ def get_price(
     try:
         return engine.get_latest_price(ticker, asset_class=asset_class)
     except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/historical-prices")
+def historical_prices(
+    ticker: str = Query(..., description="Ticker symbol, e.g. TSLA"),
+    from_date: date | None = Query(None, description="Start date inclusive (YYYY-MM-DD). Default: 1 year ago"),
+    to_date: date | None = Query(None, description="End date inclusive (YYYY-MM-DD). Default: today"),
+    timeframe: str = Query("1d", pattern="^(1[dDwWhH])$", description="Timeframe: 1d (daily), 1w (weekly), or 1h (hourly; historical via Yahoo)"),
+    asset_class: str = Query("stocks", description="Asset class for Nasdaq lookup: stocks or etf"),
+):
+    end_d = to_date or date.today()
+    start_d = from_date or (end_d - timedelta(days=365))
+    if start_d > end_d:
+        raise HTTPException(status_code=400, detail="from_date must be on or before to_date")
+
+    logger.info("Fetching historical prices for %s from %s to %s", ticker, start_d, end_d)
+    try:
+        result = engine.get_historical_prices(
+            ticker,
+            from_date=start_d,
+            to_date=end_d,
+            timeframe=timeframe,
+            asset_class=asset_class,
+        )
+        logger.info(
+            "Historical prices OK for %s: %d rows source=%s fallback=%s",
+            ticker,
+            len(result.get("prices", [])),
+            result.get("source"),
+            result.get("fallback_used"),
+        )
+        return result
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Historical prices FAILED for %s", ticker)
         raise HTTPException(status_code=400, detail=str(e))
 
 

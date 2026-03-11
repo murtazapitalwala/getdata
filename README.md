@@ -57,13 +57,21 @@ Endpoints (all parameters are query/URI parameters):
 GET /price?ticker=NFLX
 ```
 
-2) Given ticker + spot + expiry, return strike + delta near target
+2) Historical OHLCV prices (Nasdaq primary, Stooq fallback)
+
+```text
+GET /historical-prices?ticker=TSLA&from_date=2026-02-01&to_date=2026-03-10
+GET /historical-prices?ticker=TSLA&from_date=2026-02-01&to_date=2026-03-10&timeframe=1w
+GET /historical-prices?ticker=TSLA&from_date=2026-03-10&to_date=2026-03-10&timeframe=1h
+```
+
+3) Given ticker + spot + expiry, return strike + delta near target
 
 ```text
 GET /delta-strike?ticker=META&spot=661.46&expiry=2026-02-13&asof=2026-02-06&target_delta=-0.20
 ```
 
-3) Given ticker + delta, return strike + premium(mid). Expiry optional.
+4) Given ticker + delta, return strike + premium(mid). Expiry optional.
 
 ```text
 GET /strike-premium?ticker=META&target_delta=-0.20&asof=2026-02-06&expiry=2026-02-13
@@ -79,4 +87,7 @@ http://localhost:8080/docs
 
 - This uses Yahoo Finance public JSON endpoints (no key). These endpoints are unofficial and can change.
 - Options data is fetched from Nasdaq's public JSON endpoint (no key) because Yahoo options endpoints are often rate-limited.
+- Historical prices are fetched from Nasdaq first, then automatically fall back to Stooq when Nasdaq fails.
+- Daily/weekly historical data remains Nasdaq-first (with Stooq fallback).
+- Hourly (1h) historical ranges are served from Yahoo chart (60m), with yfinance as fallback; if both fail and you requested current day only, Nasdaq intraday is used as final fallback.
 - The CLI prints the exact URLs used for transparency.

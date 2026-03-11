@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import yfinance as yf
@@ -256,4 +257,101 @@ class YFinanceSource:
         return {
             "ticker": t,
             "news": articles,
+        }
+
+    def get_hourly_prices(self, ticker: str, *, fromdate: date, todate: date) -> Dict[str, Any]:
+        """Return 60m bars via yfinance for a requested date range."""
+        if fromdate > todate:
+            raise ValueError("fromdate must be on or before todate")
+
+        t = ticker.upper()
+        end_exclusive = todate + timedelta(days=1)
+        df = yf.download(
+            t,
+            start=fromdate.isoformat(),
+            end=end_exclusive.isoformat(),
+            interval="60m",
+            progress=False,
+            auto_adjust=False,
+        )
+        if df is None or df.empty:
+            raise RuntimeError(f"No yfinance hourly rows returned for {t}")
+
+        def _get_series(name: str):
+            if name in df.columns:
+                col = df[name]
+                if hasattr(col, "columns"):
+                    return col.iloc[:, 0]
+                return col
+            for c in df.columns:
+                if isinstance(c, tuple) and len(c) >= 1 and c[0] == name:
+                    col = df[c]
+                    if hasattr(col, "columns"):
+                        return col.iloc[:, 0]
+                    return col
+            return None
+
+        s_open = _get_series("Open")
+        s_high = _get_series("High")
+        s_low = _get_series("Low")
+        s_close = _get_series("Close")
+        s_vol = _get_series("Volume")
+        if s_close is None:
+            raise RuntimeError(f"Could not parse yfinance hourly columns for {t}")
+
+        prices: list[dict[str, Any]] = []
+        for idx in s_close.index:
+            ts = idx.to_pydatetime() if hasattr(idx, "to_pydatetime") else idx
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            else:
+                ts = ts.astimezone(timezone.utc)
+            d = ts.date()
+            if d < fromdate or d > todate:
+                continue
+
+            close_v = s_close.loc[idx]
+            open_v = s_open.loc[idx] if s_open is not None else close_v
+            high_v = s_high.loc[idx] if s_high is not None else close_v
+            low_v = s_low.loc[idx] if s_low is not None else close_v
+            vol_v = s_vol.loc[idx] if s_vol is not None else 0
+
+            def _n(v):
+                try:
+                    if v is None:
+                        return None
+                    fv = float(v)
+                    if fv != fv:  # NaN
+                        return None
+                    return fv
+                except Exception:
+                    return None
+
+            c = _n(close_v)
+            if c is None:
+                continue
+
+            prices.append(
+                {
+                    "date": ts.isoformat().replace("+00:00", "Z"),
+                    "open": _n(open_v),
+                    "high": _n(high_v),
+                    "low": _n(low_v),
+                    "close": c,
+                    "volume": int(_n(vol_v) or 0),
+                }
+            )
+
+        prices.sort(key=lambda x: x["date"])
+        if not prices:
+            raise RuntimeError(f"No yfinance hourly rows found for {t} in range")
+
+        return {
+            "ticker": t,
+            "from_date": fromdate.isoformat(),
+            "to_date": todate.isoformat(),
+            "prices": prices,
+            "count": len(prices),
+            "source": "yfinance",
+            "sources": [f"https://finance.yahoo.com/quote/{t}"],
         }

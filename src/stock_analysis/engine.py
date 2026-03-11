@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import time
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, Optional
 
 from .options_math import (
@@ -14,7 +15,124 @@ from .options_math import (
 from .sources.alpha_vantage import AlphaVantage
 from .sources.nasdaq import Nasdaq
 from .sources.stockanalysis import StockAnalysis
+from .sources.stooq import Stooq
+from .sources.yahoo_chart import YahooChart
 from .sources.yfinance_source import YFinanceSource
+
+
+def _max_num(a: float | None, b: float | None) -> float | None:
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return a if a >= b else b
+
+
+def _min_num(a: float | None, b: float | None) -> float | None:
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return a if a <= b else b
+
+
+def _aggregate_weekly(prices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not prices:
+        return []
+
+    weekly: list[dict[str, Any]] = []
+    current_key: tuple[int, int] | None = None
+    bucket: dict[str, Any] | None = None
+
+    for row in prices:
+        d = date.fromisoformat(str(row["date"]))
+        iso = d.isocalendar()
+        key = (iso.year, iso.week)
+
+        if key != current_key:
+            if bucket is not None:
+                weekly.append(bucket)
+            bucket = {
+                "date": row.get("date"),  # week end date (last trading day seen in that week)
+                "open": row.get("open"),
+                "high": row.get("high"),
+                "low": row.get("low"),
+                "close": row.get("close"),
+                "volume": row.get("volume") or 0,
+            }
+            current_key = key
+            continue
+
+        assert bucket is not None
+        bucket["date"] = row.get("date")
+        if bucket.get("open") is None and row.get("open") is not None:
+            bucket["open"] = row.get("open")
+        bucket["high"] = _max_num(bucket.get("high"), row.get("high"))
+        bucket["low"] = _min_num(bucket.get("low"), row.get("low"))
+        if row.get("close") is not None:
+            bucket["close"] = row.get("close")
+        bucket["volume"] = int(bucket.get("volume") or 0) + int(row.get("volume") or 0)
+
+    if bucket is not None:
+        weekly.append(bucket)
+    return weekly
+
+
+def _parse_iso_dt(v: str) -> datetime:
+    s = str(v).strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    return datetime.fromisoformat(s)
+
+
+def _aggregate_hourly(prices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not prices:
+        return []
+
+    hourly: list[dict[str, Any]] = []
+    current_key: tuple[int, int, int, int] | None = None
+    bucket: dict[str, Any] | None = None
+
+    for row in sorted(prices, key=lambda x: str(x.get("date") or "")):
+        try:
+            dt = _parse_iso_dt(str(row.get("date")))
+        except Exception:
+            continue
+
+        key = (dt.year, dt.month, dt.day, dt.hour)
+        hour_start = dt.replace(minute=0, second=0, microsecond=0)
+
+        if key != current_key:
+            if bucket is not None:
+                hourly.append(bucket)
+
+            close_v = row.get("close")
+            open_v = row.get("open") if row.get("open") is not None else close_v
+            high_v = row.get("high") if row.get("high") is not None else close_v
+            low_v = row.get("low") if row.get("low") is not None else close_v
+            bucket = {
+                "date": hour_start.isoformat().replace("+00:00", "Z"),
+                "open": open_v,
+                "high": high_v,
+                "low": low_v,
+                "close": close_v,
+                "volume": int(row.get("volume") or 0),
+            }
+            current_key = key
+            continue
+
+        assert bucket is not None
+        if bucket.get("open") is None and row.get("open") is not None:
+            bucket["open"] = row.get("open")
+        bucket["high"] = _max_num(bucket.get("high"), row.get("high"))
+        bucket["low"] = _min_num(bucket.get("low"), row.get("low"))
+        if row.get("close") is not None:
+            bucket["close"] = row.get("close")
+        bucket["volume"] = int(bucket.get("volume") or 0) + int(row.get("volume") or 0)
+
+    if bucket is not None:
+        hourly.append(bucket)
+    return hourly
 
 
 class OptionEngine:
@@ -25,11 +143,17 @@ class OptionEngine:
         alpha_vantage: Optional[AlphaVantage] = None,
         yfinance: Optional[YFinanceSource] = None,
         stockanalysis: Optional[StockAnalysis] = None,
+        stooq: Optional[Stooq] = None,
+        yahoo_chart: Optional[YahooChart] = None,
     ) -> None:
         self._nasdaq = nasdaq or Nasdaq()
         self._alpha_vantage = alpha_vantage or AlphaVantage()
         self._yfinance = yfinance or YFinanceSource()
         self._stockanalysis = stockanalysis or StockAnalysis()
+        self._stooq = stooq or Stooq()
+        self._yahoo_chart = yahoo_chart or YahooChart()
+        self._historical_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
+        self._historical_cache_ttl_s = 300.0
 
     def get_latest_price(self, ticker: str, asset_class: str = "stocks") -> Dict[str, Any]:
         price, url = self._nasdaq.get_underlying_from_option_chain(ticker, asset_class=asset_class)
@@ -405,3 +529,121 @@ class OptionEngine:
 
     def get_analyst_ratings(self, ticker: str) -> Dict[str, Any]:
         return self._stockanalysis.get_analyst_ratings(ticker)
+
+    def get_historical_prices(
+        self,
+        ticker: str,
+        *,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        timeframe: str = "1d",
+        asset_class: str = "stocks",
+    ) -> Dict[str, Any]:
+        end_d = to_date or date.today()
+        start_d = from_date or (end_d - timedelta(days=365))
+        if start_d > end_d:
+            raise ValueError("from_date must be on or before to_date")
+        tf = str(timeframe).strip().lower()
+        if tf not in {"1d", "1w", "1h"}:
+            raise ValueError("timeframe must be one of: 1d, 1w, 1h")
+
+        cache_key = f"{ticker.upper()}:{start_d.isoformat()}:{end_d.isoformat()}:{asset_class}:{tf}"
+        cached = self._historical_cache.get(cache_key)
+        now = time.time()
+        if cached and (now - cached[0]) < self._historical_cache_ttl_s:
+            return cached[1]
+
+        if tf == "1h":
+            try:
+                hourly, source_url = self._yahoo_chart.get_hourly_prices(
+                    ticker,
+                    fromdate=start_d,
+                    todate=end_d,
+                )
+                result = {
+                    **hourly,
+                    "source": "yahoo",
+                    "source_url": source_url,
+                    "fallback_used": False,
+                    "timeframe": tf,
+                }
+            except Exception as yahoo_err:
+                try:
+                    yf_hourly = self._yfinance.get_hourly_prices(
+                        ticker,
+                        fromdate=start_d,
+                        todate=end_d,
+                    )
+                    result = {
+                        **yf_hourly,
+                        "source": "yfinance",
+                        "source_url": (yf_hourly.get("sources") or [None])[0],
+                        "fallback_used": True,
+                        "fallback_reason": str(yahoo_err),
+                        "timeframe": tf,
+                    }
+                except Exception as yfin_err:
+                    # Nasdaq intraday endpoint is only useful for current-day minute data.
+                    # Keep it as a final resilience fallback for current day.
+                    today = date.today()
+                    if start_d == today and end_d == today:
+                        intraday, source_url = self._nasdaq.get_intraday_prices(
+                            ticker,
+                            asset_class=asset_class,
+                        )
+                        hourly_prices = _aggregate_hourly(intraday.get("prices") or [])
+                        result = {
+                            **intraday,
+                            "prices": hourly_prices,
+                            "count": len(hourly_prices),
+                            "source": "nasdaq",
+                            "source_url": source_url,
+                            "fallback_used": True,
+                            "fallback_reason": f"yahoo={yahoo_err}; yfinance={yfin_err}",
+                            "timeframe": tf,
+                        }
+                    else:
+                        raise RuntimeError(
+                            "Hourly range fetch failed (yahoo + yfinance). "
+                            "Nasdaq public APIs do not provide historical hourly bars for arbitrary date ranges."
+                        ) from yfin_err
+
+            self._historical_cache[cache_key] = (now, result)
+            return result
+
+        try:
+            primary, source_url = self._nasdaq.get_historical_prices(
+                ticker,
+                fromdate=start_d,
+                todate=end_d,
+                asset_class=asset_class,
+            )
+            result = {
+                **primary,
+                "source": "nasdaq",
+                "source_url": source_url,
+                "fallback_used": False,
+            }
+        except Exception as nasdaq_err:
+            fallback, source_url = self._stooq.get_historical_prices(
+                ticker,
+                fromdate=start_d,
+                todate=end_d,
+            )
+            result = {
+                **fallback,
+                "source": "stooq",
+                "source_url": source_url,
+                "fallback_used": True,
+                "fallback_reason": str(nasdaq_err),
+            }
+
+        if tf == "1w":
+            weekly_prices = _aggregate_weekly(result.get("prices") or [])
+            result["prices"] = weekly_prices
+            result["count"] = len(weekly_prices)
+
+        result["timeframe"] = tf
+
+        self._historical_cache[cache_key] = (now, result)
+        return result

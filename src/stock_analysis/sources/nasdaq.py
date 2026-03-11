@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from xml.etree import ElementTree as ET
 
@@ -13,6 +13,7 @@ from ..http import HttpClient
 NASDAQ_OPTION_CHAIN_URL = "https://api.nasdaq.com/api/quote/{ticker}/option-chain"
 NASDAQ_QUOTE_URL = "https://api.nasdaq.com/api/quote/{ticker}/info"
 NASDAQ_SUMMARY_URL = "https://api.nasdaq.com/api/quote/{ticker}/summary"
+NASDAQ_HISTORICAL_URL = "https://api.nasdaq.com/api/quote/{ticker}/historical"
 NASDAQ_NEWS_RSS_URL = "https://www.nasdaq.com/feed/rssoutbound?symbol={ticker}"
 
 
@@ -47,7 +48,7 @@ def _to_float(v: Any) -> Optional[float]:
         return None
     if isinstance(v, (int, float)):
         return float(v)
-    s = str(v).strip()
+    s = str(v).strip().replace("$", "").replace(",", "").replace("%", "")
     if not s or s in {"--", "N/A"}:
         return None
     # Nasdaq returns plain numbers as strings.
@@ -55,6 +56,11 @@ def _to_float(v: Any) -> Optional[float]:
         return float(s)
     except ValueError:
         return None
+
+
+def _to_int(v: Any) -> Optional[int]:
+    f = _to_float(v)
+    return int(f) if f is not None else None
 
 
 class Nasdaq:
@@ -349,6 +355,112 @@ class Nasdaq:
             raise RuntimeError(f"No lastSalePrice in Nasdaq info payload for {ticker}")
         s = str(last).strip().replace("$", "")
         return float(s), meta.url
+
+    def get_historical_prices(
+        self,
+        ticker: str,
+        *,
+        fromdate: date,
+        todate: date,
+        asset_class: str = "stocks",
+        limit: int = 5000,
+    ) -> tuple[dict[str, Any], str]:
+        if fromdate > todate:
+            raise ValueError("fromdate must be on or before todate")
+
+        url = NASDAQ_HISTORICAL_URL.format(ticker=ticker.lower())
+        data, meta = self._http.get_json(
+            url,
+            params={
+                "assetclass": asset_class,
+                "fromdate": fromdate.isoformat(),
+                "todate": todate.isoformat(),
+                "limit": int(limit),
+            },
+        )
+
+        table = ((data.get("data") or {}).get("tradesTable")) or {}
+        rows: List[Dict[str, Any]] = table.get("rows") or []
+        prices: list[dict[str, Any]] = []
+
+        for row in rows:
+            raw_date = str(row.get("date") or "").strip()
+            if not raw_date:
+                continue
+            try:
+                d = datetime.strptime(raw_date, "%m/%d/%Y").date()
+            except ValueError:
+                continue
+
+            prices.append(
+                {
+                    "date": d.isoformat(),
+                    "open": _to_float(row.get("open")),
+                    "high": _to_float(row.get("high")),
+                    "low": _to_float(row.get("low")),
+                    "close": _to_float(row.get("close")),
+                    "volume": _to_int(row.get("volume")),
+                }
+            )
+
+        prices.sort(key=lambda x: x["date"])
+        if not prices:
+            raise RuntimeError(f"No Nasdaq historical rows found for {ticker} in range")
+
+        return {
+            "ticker": ticker.upper(),
+            "from_date": fromdate.isoformat(),
+            "to_date": todate.isoformat(),
+            "prices": prices,
+            "count": len(prices),
+        }, meta.url
+
+    def get_intraday_prices(
+        self,
+        ticker: str,
+        *,
+        asset_class: str = "stocks",
+    ) -> tuple[dict[str, Any], str]:
+        """Fetch current-day intraday minute bars from Nasdaq chart endpoint."""
+        url = f"https://api.nasdaq.com/api/quote/{ticker.lower()}/chart"
+        data, meta = self._http.get_json(url, params={"assetclass": asset_class})
+
+        payload = data.get("data") or {}
+        chart_rows: List[Dict[str, Any]] = payload.get("chart") or []
+        prices: list[dict[str, Any]] = []
+
+        for row in chart_rows:
+            ts_ms = row.get("x")
+            if ts_ms is None:
+                continue
+            px = _to_float(row.get("y") or ((row.get("z") or {}).get("value")))
+            if px is None:
+                continue
+
+            dt_utc = datetime.fromtimestamp(int(ts_ms) / 1000.0, tz=timezone.utc)
+            prices.append(
+                {
+                    "date": dt_utc.isoformat().replace("+00:00", "Z"),
+                    "open": px,
+                    "high": px,
+                    "low": px,
+                    "close": px,
+                    "volume": 0,
+                }
+            )
+
+        prices.sort(key=lambda x: x["date"])
+        if not prices:
+            raise RuntimeError(f"No Nasdaq intraday chart rows found for {ticker}")
+
+        day = datetime.fromisoformat(prices[-1]["date"].replace("Z", "+00:00")).date()
+        return {
+            "ticker": ticker.upper(),
+            "from_date": day.isoformat(),
+            "to_date": day.isoformat(),
+            "prices": prices,
+            "count": len(prices),
+        }, meta.url
 
     def get_full_chain(
         self,
