@@ -321,6 +321,31 @@ def analyst_ratings(
         logger.exception("Analyst ratings FAILED for %s", ticker)
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.get("/support-resistance")
+def support_resistance(
+    ticker: str,
+    start: str,
+    end: str,
+    interval: str = "d",
+    pivot_window: int = 2,
+    tolerance_pct: float = 0.02,
+    min_touches: int = 2,
+    max_zones_per_side: int = 6,
+):
+    try:
+        return engine.get_volume_weighted_support_resistance(
+            ticker=ticker,
+            start=start,
+            end=end,
+            interval=interval,
+            pivot_window=pivot_window,
+            tolerance_pct=tolerance_pct,
+            min_touches=min_touches,
+            max_zones_per_side=max_zones_per_side,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 def main() -> None:
     import uvicorn

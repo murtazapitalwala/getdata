@@ -18,6 +18,7 @@ from .sources.stockanalysis import StockAnalysis
 from .sources.stooq import Stooq
 from .sources.yahoo_chart import YahooChart
 from .sources.yfinance_source import YFinanceSource
+from .support_resistance import compute_volume_weighted_support_resistance
 
 
 def _max_num(a: float | None, b: float | None) -> float | None:
@@ -646,4 +647,68 @@ class OptionEngine:
         result["timeframe"] = tf
 
         self._historical_cache[cache_key] = (now, result)
+        return result
+
+    def get_volume_weighted_support_resistance(
+        self,
+        ticker: str,
+        start: str,
+        end: str,
+        interval: str = "d",
+        pivot_window: int = 2,
+        tolerance_pct: float = 0.02,
+        min_touches: int = 2,
+        max_zones_per_side: int = 6,
+    ) -> Dict[str, Any]:
+        # Map shorthand interval letters to the timeframe format expected by get_historical_prices.
+        _interval_map = {"d": "1d", "w": "1w", "h": "1h", "1d": "1d", "1w": "1w", "1h": "1h"}
+        tf = _interval_map.get(str(interval).strip().lower(), "1d")
+
+        hist = self.get_historical_prices(
+            ticker=ticker,
+            from_date=date.fromisoformat(start),
+            to_date=date.fromisoformat(end),
+            timeframe=tf,
+        )
+
+        prices = hist["prices"]
+
+        result = compute_volume_weighted_support_resistance(
+            ticker=ticker,
+            prices=prices,
+            pivot_window=pivot_window,
+            tolerance_pct=tolerance_pct,
+            min_touches=min_touches,
+            max_zones_per_side=max_zones_per_side,
+        )
+
+        result["start"] = start
+        result["end"] = end
+        result["interval"] = interval
+        result["timeframe"] = tf
+        result["count"] = len(prices)
+        result["source"] = hist.get("source")
+        result["source_url"] = hist.get("source_url")
+        result["fallback_used"] = hist.get("fallback_used", False)
+
+        # Explain empty results so callers understand why no zones were returned.
+        if not result["supports"] and not result["resistances"]:
+            # Minimum bars needed: pivot_window bars on each side of a candidate,
+            # plus at least min_touches distinct pivot bars that must cluster together.
+            min_bars_needed = pivot_window * 2 + max(min_touches * 2, 1)
+            warnings: list[str] = []
+            if len(prices) < min_bars_needed:
+                warnings.append(
+                    f"Only {len(prices)} bar(s) in the requested range — need at least "
+                    f"{min_bars_needed} to form {min_touches}-touch zones with "
+                    f"pivot_window={pivot_window}. Expand the date range or set min_touches=1."
+                )
+            else:
+                warnings.append(
+                    f"No pivot clusters met the criteria (min_touches={min_touches}, "
+                    f"tolerance_pct={tolerance_pct}). "
+                    "Try a longer date range, reduce min_touches to 1, or widen tolerance_pct."
+                )
+            result["warnings"] = warnings
+
         return result
