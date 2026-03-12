@@ -26,8 +26,8 @@ def _git_sha() -> str:
 
 _GIT_COMMIT = _git_sha()
 
-#app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "https://getdata-uufz.onrender.com"}])
-app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "http://localhost:8080"}])  # local override for testing
+app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "https://getdata-uufz.onrender.com"}])
+#app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "http://localhost:8080"}])  # local override for testing
 engine = OptionEngine()
 
 @app.middleware("http")
