@@ -45,7 +45,6 @@ _WARMUP_TICKERS: list[tuple[str, str]] = [
 _WARMUP_COMBOS: list[tuple[str, int]] = [
     ("1d",  365),   # 1 year daily
     ("1w",  730),   # 2 years weekly
-    ("1h",   31),   # 1 month hourly
 ]
 
 
