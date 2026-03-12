@@ -157,7 +157,7 @@ class OptionEngine:
         self._stooq = stooq or Stooq(http=_http)
         self._yahoo_chart = yahoo_chart or YahooChart(http=_http)
         self._historical_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
-        self._historical_cache_ttl_s = 300.0
+        self._historical_cache_ttl_s = float("inf")  # entries live until restart or explicit refresh
 
     def get_latest_price(self, ticker: str, asset_class: str = "stocks") -> Dict[str, Any]:
         price, url = self._nasdaq.get_underlying_from_option_chain(ticker, asset_class=asset_class)
@@ -542,6 +542,7 @@ class OptionEngine:
         to_date: date | None = None,
         timeframe: str = "1d",
         asset_class: str = "stocks",
+        refresh: bool = False,
     ) -> Dict[str, Any]:
         end_d = to_date or date.today()
         start_d = from_date or (end_d - timedelta(days=365))
@@ -554,7 +555,7 @@ class OptionEngine:
         cache_key = f"{ticker.upper()}:{start_d.isoformat()}:{end_d.isoformat()}:{asset_class}:{tf}"
         cached = self._historical_cache.get(cache_key)
         now = time.time()
-        if cached and (now - cached[0]) < self._historical_cache_ttl_s:
+        if not refresh and cached and (now - cached[0]) < self._historical_cache_ttl_s:
             return cached[1]
 
         if tf == "1h":

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import threading
+from contextlib import asynccontextmanager
 from datetime import date, timedelta
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -26,7 +28,64 @@ def _git_sha() -> str:
 
 _GIT_COMMIT = _git_sha()
 
-app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "https://getdata-uufz.onrender.com"}])
+# Tickers to pre-warm on startup, with their asset class.
+_WARMUP_TICKERS: list[tuple[str, str]] = [
+    ("TQQQ", "etf"),
+    ("SOXL", "etf"),
+    ("TSLA", "stocks"),
+    ("TSLL", "etf"),
+    ("GOOG", "stocks"),
+    ("MSFT", "stocks"),
+    ("TNA",  "etf"),
+    ("META", "stocks"),
+    ("AMZN", "stocks"),
+]
+
+# (timeframe, lookback_days) pairs to warm per ticker
+_WARMUP_COMBOS: list[tuple[str, int]] = [
+    ("1d",  365),   # 1 year daily
+    ("1w",  730),   # 2 years weekly
+    ("1h",   31),   # 1 month hourly
+]
+
+
+def _warmup_cache() -> None:
+    today = date.today()
+    total = len(_WARMUP_TICKERS) * len(_WARMUP_COMBOS)
+    done = 0
+    for ticker, asset_class in _WARMUP_TICKERS:
+        for tf, days in _WARMUP_COMBOS:
+            start_d = today - timedelta(days=days)
+            try:
+                _historical_engine.get_historical_prices(
+                    ticker,
+                    from_date=start_d,
+                    to_date=today,
+                    timeframe=tf,
+                    asset_class=asset_class,
+                )
+                done += 1
+                logger.info("Cache warm-up [%d/%d] OK  %s %s %s→%s", done, total, ticker, tf, start_d, today)
+            except Exception:
+                done += 1
+                logger.warning("Cache warm-up [%d/%d] FAIL %s %s", done, total, ticker, tf, exc_info=True)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start warm-up in a background thread so the server is ready immediately.
+    t = threading.Thread(target=_warmup_cache, name="cache-warmup", daemon=True)
+    t.start()
+    logger.info("Cache warm-up started in background (%d combos)", len(_WARMUP_TICKERS) * len(_WARMUP_COMBOS))
+    yield
+
+
+app = FastAPI(
+    title="Stock Analysis API",
+    version="0.1.0",
+    servers=[{"url": "https://getdata-uufz.onrender.com"}],
+    lifespan=lifespan,
+)
 #app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "http://localhost:8080"}])  # local override for testing
 engine = OptionEngine()
 # Dedicated engine with 5-minute HTTP timeouts for long-running historical fetches.
@@ -69,13 +128,14 @@ def historical_prices(
     to_date: date | None = Query(None, description="End date inclusive (YYYY-MM-DD). Default: today"),
     timeframe: str = Query("1d", pattern="^(1[dDwWhH])$", description="Timeframe: 1d (daily), 1w (weekly), or 1h (hourly; historical via Yahoo)"),
     asset_class: str = Query("stocks", description="Asset class for Nasdaq lookup: stocks or etf"),
+    refresh: bool = Query(False, description="Set true to bypass cache and force a fresh fetch"),
 ):
     end_d = to_date or date.today()
     start_d = from_date or (end_d - timedelta(days=365))
     if start_d > end_d:
         raise HTTPException(status_code=400, detail="from_date must be on or before to_date")
 
-    logger.info("Fetching historical prices for %s from %s to %s", ticker, start_d, end_d)
+    logger.info("Fetching historical prices for %s from %s to %s (refresh=%s)", ticker, start_d, end_d, refresh)
     try:
         result = _historical_engine.get_historical_prices(
             ticker,
@@ -83,6 +143,7 @@ def historical_prices(
             to_date=end_d,
             timeframe=timeframe,
             asset_class=asset_class,
+            refresh=refresh,
         )
         logger.info(
             "Historical prices OK for %s: %d rows source=%s fallback=%s",
