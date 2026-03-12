@@ -626,18 +626,32 @@ class OptionEngine:
                 "fallback_used": False,
             }
         except Exception as nasdaq_err:
-            fallback, source_url = self._stooq.get_historical_prices(
-                ticker,
-                fromdate=start_d,
-                todate=end_d,
-            )
-            result = {
-                **fallback,
-                "source": "stooq",
-                "source_url": source_url,
-                "fallback_used": True,
-                "fallback_reason": str(nasdaq_err),
-            }
+            try:
+                fallback, source_url = self._stooq.get_historical_prices(
+                    ticker,
+                    fromdate=start_d,
+                    todate=end_d,
+                )
+                result = {
+                    **fallback,
+                    "source": "stooq",
+                    "source_url": source_url,
+                    "fallback_used": True,
+                    "fallback_reason": str(nasdaq_err),
+                }
+            except Exception as stooq_err:
+                yf_daily, source_url = self._yfinance.get_daily_prices(
+                    ticker,
+                    fromdate=start_d,
+                    todate=end_d,
+                )
+                result = {
+                    **yf_daily,
+                    "source": "yfinance",
+                    "source_url": source_url,
+                    "fallback_used": True,
+                    "fallback_reason": f"nasdaq={nasdaq_err}; stooq={stooq_err}",
+                }
 
         if tf == "1w":
             weekly_prices = _aggregate_weekly(result.get("prices") or [])

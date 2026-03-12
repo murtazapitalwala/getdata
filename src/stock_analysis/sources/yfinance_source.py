@@ -236,6 +236,57 @@ class YFinanceSource:
         logger.info("yfinance: %s analyst targets — mean=%s median=%s", t, targets["target_mean"], targets["target_median"])
         return targets
 
+    def get_daily_prices(
+        self,
+        ticker: str,
+        *,
+        fromdate: date,
+        todate: date,
+    ) -> tuple[dict[str, Any], str]:
+        """Fetch daily OHLCV from yfinance for an arbitrary date range."""
+        t = ticker.upper()
+        logger.info("yfinance: downloading daily data for %s from %s to %s", t, fromdate, todate)
+        # yf.download end date is exclusive, so add 1 day
+        end_excl = (todate + timedelta(days=1)).isoformat()
+        df = yf.download(
+            t,
+            start=fromdate.isoformat(),
+            end=end_excl,
+            interval="1d",
+            progress=False,
+            auto_adjust=True,
+        )
+        if df.empty:
+            raise RuntimeError(f"yfinance returned no daily data for {t}")
+
+        def _get_col(name: str):
+            col = df[name]
+            if hasattr(col, "columns"):
+                col = col.iloc[:, 0]
+            return col
+
+        prices: list[dict[str, Any]] = []
+        for idx in df.index:
+            d = idx.date()
+            if d < fromdate or d > todate:
+                continue
+            prices.append({
+                "date": d.isoformat(),
+                "open": round(float(_get_col("Open").loc[idx]), 4),
+                "high": round(float(_get_col("High").loc[idx]), 4),
+                "low": round(float(_get_col("Low").loc[idx]), 4),
+                "close": round(float(_get_col("Close").loc[idx]), 4),
+                "volume": int(_get_col("Volume").loc[idx]),
+            })
+
+        source_url = f"https://finance.yahoo.com/quote/{t}"
+        logger.info("yfinance: %s daily — %d rows returned", t, len(prices))
+        return {
+            "ticker": t,
+            "prices": prices,
+            "count": len(prices),
+        }, source_url
+
     def get_news(self, ticker: str) -> Dict[str, Any]:
         """Return recent news headlines for a ticker."""
         t = ticker.upper()

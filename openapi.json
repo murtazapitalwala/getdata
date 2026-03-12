@@ -1,0 +1,1292 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Stock Analysis API",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "https://getdata-uufz.onrender.com"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/version": {
+      "get": {
+        "summary": "Version",
+        "operationId": "version_version_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/price": {
+      "get": {
+        "summary": "Get Price",
+        "operationId": "get_price_price_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Ticker symbol, e.g. META",
+              "title": "Ticker"
+            },
+            "description": "Ticker symbol, e.g. META"
+          },
+          {
+            "name": "asset_class",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Asset class: stocks or etf",
+              "default": "stocks",
+              "title": "Asset Class"
+            },
+            "description": "Asset class: stocks or etf"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/historical-prices": {
+      "get": {
+        "summary": "Historical Prices",
+        "operationId": "historical_prices_historical_prices_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Ticker symbol, e.g. TSLA",
+              "title": "Ticker"
+            },
+            "description": "Ticker symbol, e.g. TSLA"
+          },
+          {
+            "name": "from_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Start date inclusive (YYYY-MM-DD). Default: 1 year ago",
+              "title": "From Date"
+            },
+            "description": "Start date inclusive (YYYY-MM-DD). Default: 1 year ago"
+          },
+          {
+            "name": "to_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "End date inclusive (YYYY-MM-DD). Default: today",
+              "title": "To Date"
+            },
+            "description": "End date inclusive (YYYY-MM-DD). Default: today"
+          },
+          {
+            "name": "timeframe",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(1[dDwWhH])$",
+              "description": "Timeframe: 1d (daily), 1w (weekly), or 1h (hourly; historical via Yahoo)",
+              "default": "1d",
+              "title": "Timeframe"
+            },
+            "description": "Timeframe: 1d (daily), 1w (weekly), or 1h (hourly; historical via Yahoo)"
+          },
+          {
+            "name": "asset_class",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Asset class for Nasdaq lookup: stocks or etf",
+              "default": "stocks",
+              "title": "Asset Class"
+            },
+            "description": "Asset class for Nasdaq lookup: stocks or etf"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/delta-strike": {
+      "get": {
+        "summary": "Delta Strike",
+        "operationId": "delta_strike_delta_strike_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ticker"
+            }
+          },
+          {
+            "name": "spot",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "description": "Underlying spot price",
+              "title": "Spot"
+            },
+            "description": "Underlying spot price"
+          },
+          {
+            "name": "expiry",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "Option expiry date (YYYY-MM-DD)",
+              "title": "Expiry"
+            },
+            "description": "Option expiry date (YYYY-MM-DD)"
+          },
+          {
+            "name": "right",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Option right: put or call",
+              "default": "put",
+              "title": "Right"
+            },
+            "description": "Option right: put or call"
+          },
+          {
+            "name": "target_delta",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "description": "Target option delta (put typically negative, call positive)",
+              "default": -0.2,
+              "title": "Target Delta"
+            },
+            "description": "Target option delta (put typically negative, call positive)"
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "As-of date for T (YYYY-MM-DD)",
+              "title": "Asof"
+            },
+            "description": "As-of date for T (YYYY-MM-DD)"
+          },
+          {
+            "name": "r",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "description": "Risk-free rate (annualized)",
+              "default": 0,
+              "title": "R"
+            },
+            "description": "Risk-free rate (annualized)"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "description": "Dividend yield (annualized)",
+              "default": 0,
+              "title": "Q"
+            },
+            "description": "Dividend yield (annualized)"
+          },
+          {
+            "name": "asset_class",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Asset class: stocks or etf",
+              "default": "stocks",
+              "title": "Asset Class"
+            },
+            "description": "Asset class: stocks or etf"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/strike-premium": {
+      "get": {
+        "summary": "Strike Premium",
+        "operationId": "strike_premium_strike_premium_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ticker"
+            }
+          },
+          {
+            "name": "right",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Option right: put or call",
+              "default": "put",
+              "title": "Right"
+            },
+            "description": "Option right: put or call"
+          },
+          {
+            "name": "target_delta",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "description": "Target option delta (put typically negative, call positive)",
+              "title": "Target Delta"
+            },
+            "description": "Target option delta (put typically negative, call positive)"
+          },
+          {
+            "name": "expiry",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Option expiry date (YYYY-MM-DD); default nearest",
+              "title": "Expiry"
+            },
+            "description": "Option expiry date (YYYY-MM-DD); default nearest"
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "As-of date for T (YYYY-MM-DD)",
+              "title": "Asof"
+            },
+            "description": "As-of date for T (YYYY-MM-DD)"
+          },
+          {
+            "name": "spot",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override spot price",
+              "title": "Spot"
+            },
+            "description": "Override spot price"
+          },
+          {
+            "name": "r",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0,
+              "title": "R"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0,
+              "title": "Q"
+            }
+          },
+          {
+            "name": "asset_class",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Asset class: stocks or etf",
+              "default": "stocks",
+              "title": "Asset Class"
+            },
+            "description": "Asset class: stocks or etf"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/option-premium": {
+      "get": {
+        "summary": "Option Premium",
+        "operationId": "option_premium_option_premium_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ticker"
+            }
+          },
+          {
+            "name": "expiry",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "Option expiry date (YYYY-MM-DD)",
+              "title": "Expiry"
+            },
+            "description": "Option expiry date (YYYY-MM-DD)"
+          },
+          {
+            "name": "strike",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "description": "Option strike",
+              "title": "Strike"
+            },
+            "description": "Option strike"
+          },
+          {
+            "name": "right",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Option right: put or call",
+              "default": "put",
+              "title": "Right"
+            },
+            "description": "Option right: put or call"
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "As-of date for T (YYYY-MM-DD)",
+              "title": "Asof"
+            },
+            "description": "As-of date for T (YYYY-MM-DD)"
+          },
+          {
+            "name": "spot",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override spot price",
+              "title": "Spot"
+            },
+            "description": "Override spot price"
+          },
+          {
+            "name": "r",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0,
+              "title": "R"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0,
+              "title": "Q"
+            }
+          },
+          {
+            "name": "asset_class",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Asset class: stocks or etf",
+              "default": "stocks",
+              "title": "Asset Class"
+            },
+            "description": "Asset class: stocks or etf"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/covered-call": {
+      "get": {
+        "summary": "Covered Call",
+        "operationId": "covered_call_covered_call_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ticker"
+            }
+          },
+          {
+            "name": "expiry",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "Option expiry date (YYYY-MM-DD)",
+              "title": "Expiry"
+            },
+            "description": "Option expiry date (YYYY-MM-DD)"
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "As-of date for T (YYYY-MM-DD)",
+              "title": "Asof"
+            },
+            "description": "As-of date for T (YYYY-MM-DD)"
+          },
+          {
+            "name": "spot",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Override spot price",
+              "title": "Spot"
+            },
+            "description": "Override spot price"
+          },
+          {
+            "name": "strike",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Call strike; if omitted, pick from target_delta",
+              "title": "Strike"
+            },
+            "description": "Call strike; if omitted, pick from target_delta"
+          },
+          {
+            "name": "target_delta",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "description": "Target call delta (positive), used if strike omitted",
+              "default": 0.2,
+              "title": "Target Delta"
+            },
+            "description": "Target call delta (positive), used if strike omitted"
+          },
+          {
+            "name": "shares",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Share count (must be multiple of 100)",
+              "default": 100,
+              "title": "Shares"
+            },
+            "description": "Share count (must be multiple of 100)"
+          },
+          {
+            "name": "r",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0,
+              "title": "R"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0,
+              "title": "Q"
+            }
+          },
+          {
+            "name": "asset_class",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Asset class: stocks or etf",
+              "default": "stocks",
+              "title": "Asset Class"
+            },
+            "description": "Asset class: stocks or etf"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/technicals": {
+      "get": {
+        "summary": "Technicals",
+        "operationId": "technicals_technicals_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Ticker symbol, e.g. META",
+              "title": "Ticker"
+            },
+            "description": "Ticker symbol, e.g. META"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/options-chain": {
+      "get": {
+        "summary": "Options Chain",
+        "operationId": "options_chain_options_chain_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Ticker symbol, e.g. AAPL",
+              "title": "Ticker"
+            },
+            "description": "Ticker symbol, e.g. AAPL"
+          },
+          {
+            "name": "weeks_out",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Weeks of expirations to return (1-8, default 3)",
+              "default": 3,
+              "title": "Weeks Out"
+            },
+            "description": "Weeks of expirations to return (1-8, default 3)"
+          },
+          {
+            "name": "asset_class",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Asset class: stocks or etf",
+              "default": "stocks",
+              "title": "Asset Class"
+            },
+            "description": "Asset class: stocks or etf"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recommendations": {
+      "get": {
+        "summary": "Recommendations",
+        "operationId": "recommendations_recommendations_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Ticker symbol, e.g. GOOG",
+              "title": "Ticker"
+            },
+            "description": "Ticker symbol, e.g. GOOG"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analyst-targets": {
+      "get": {
+        "summary": "Analyst Targets",
+        "operationId": "analyst_targets_analyst_targets_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Ticker symbol, e.g. MSFT",
+              "title": "Ticker"
+            },
+            "description": "Ticker symbol, e.g. MSFT"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/news": {
+      "get": {
+        "summary": "News",
+        "operationId": "news_news_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Ticker symbol, e.g. TSLA",
+              "title": "Ticker"
+            },
+            "description": "Ticker symbol, e.g. TSLA"
+          },
+          {
+            "name": "asset_class",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Asset class: stocks or etf",
+              "default": "stocks",
+              "title": "Asset Class"
+            },
+            "description": "Asset class: stocks or etf"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/nasdaq-analyst-targets": {
+      "get": {
+        "summary": "Nasdaq Analyst Targets",
+        "operationId": "nasdaq_analyst_targets_nasdaq_analyst_targets_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Ticker symbol, e.g. MSFT",
+              "title": "Ticker"
+            },
+            "description": "Ticker symbol, e.g. MSFT"
+          },
+          {
+            "name": "asset_class",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Asset class: stocks or etf",
+              "default": "stocks",
+              "title": "Asset Class"
+            },
+            "description": "Asset class: stocks or etf"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analyst-ratings": {
+      "get": {
+        "summary": "Analyst Ratings",
+        "operationId": "analyst_ratings_analyst_ratings_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Ticker symbol, e.g. NFLX",
+              "title": "Ticker"
+            },
+            "description": "Ticker symbol, e.g. NFLX"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/support-resistance": {
+      "get": {
+        "summary": "Support Resistance",
+        "operationId": "support_resistance_support_resistance_get",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ticker"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Start"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "End"
+            }
+          },
+          {
+            "name": "interval",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "d",
+              "title": "Interval"
+            }
+          },
+          {
+            "name": "pivot_window",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 2,
+              "title": "Pivot Window"
+            }
+          },
+          {
+            "name": "tolerance_pct",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0.02,
+              "title": "Tolerance Pct"
+            }
+          },
+          {
+            "name": "min_touches",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 2,
+              "title": "Min Touches"
+            }
+          },
+          {
+            "name": "max_zones_per_side",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 6,
+              "title": "Max Zones Per Side"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
