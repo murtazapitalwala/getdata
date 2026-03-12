@@ -29,6 +29,8 @@ _GIT_COMMIT = _git_sha()
 app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "https://getdata-uufz.onrender.com"}])
 #app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "http://localhost:8080"}])  # local override for testing
 engine = OptionEngine()
+# Dedicated engine with 5-minute HTTP timeouts for long-running historical fetches.
+_historical_engine = OptionEngine(http_timeout_s=600.0)
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -75,7 +77,7 @@ def historical_prices(
 
     logger.info("Fetching historical prices for %s from %s to %s", ticker, start_d, end_d)
     try:
-        result = engine.get_historical_prices(
+        result = _historical_engine.get_historical_prices(
             ticker,
             from_date=start_d,
             to_date=end_d,
@@ -333,7 +335,7 @@ def support_resistance(
     max_zones_per_side: int = 6,
 ):
     try:
-        return engine.get_volume_weighted_support_resistance(
+        return _historical_engine.get_volume_weighted_support_resistance(
             ticker=ticker,
             start=start,
             end=end,

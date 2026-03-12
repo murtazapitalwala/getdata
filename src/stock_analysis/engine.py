@@ -12,6 +12,7 @@ from .options_math import (
     implied_vol_call_bisect,
     implied_vol_put_bisect,
 )
+from .http import HttpClient
 from .sources.alpha_vantage import AlphaVantage
 from .sources.nasdaq import Nasdaq
 from .sources.stockanalysis import StockAnalysis
@@ -146,13 +147,15 @@ class OptionEngine:
         stockanalysis: Optional[StockAnalysis] = None,
         stooq: Optional[Stooq] = None,
         yahoo_chart: Optional[YahooChart] = None,
+        http_timeout_s: float = 20.0,
     ) -> None:
-        self._nasdaq = nasdaq or Nasdaq()
+        _http = HttpClient(timeout_s=http_timeout_s)
+        self._nasdaq = nasdaq or Nasdaq(http=_http)
         self._alpha_vantage = alpha_vantage or AlphaVantage()
         self._yfinance = yfinance or YFinanceSource()
         self._stockanalysis = stockanalysis or StockAnalysis()
-        self._stooq = stooq or Stooq()
-        self._yahoo_chart = yahoo_chart or YahooChart()
+        self._stooq = stooq or Stooq(http=_http)
+        self._yahoo_chart = yahoo_chart or YahooChart(http=_http)
         self._historical_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
         self._historical_cache_ttl_s = 300.0
 
