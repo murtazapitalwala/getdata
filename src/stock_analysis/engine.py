@@ -612,20 +612,40 @@ class OptionEngine:
             self._historical_cache[cache_key] = (now, result)
             return result
 
-        try:
-            primary, source_url = self._nasdaq.get_historical_prices(
-                ticker,
-                fromdate=start_d,
-                todate=end_d,
-                asset_class=asset_class,
-            )
-            result = {
-                **primary,
-                "source": "nasdaq",
-                "source_url": source_url,
-                "fallback_used": False,
-            }
-        except Exception as nasdaq_err:
+        # Nasdaq historical API only carries data for stocks, not ETFs.
+        # Skip it entirely for ETFs to avoid a guaranteed failed round-trip.
+        _nasdaq_supports_asset_class = asset_class.strip().lower() == "stocks"
+
+        nasdaq_err_for_reason: Optional[Exception] = None
+        if _nasdaq_supports_asset_class:
+            try:
+                primary, source_url = self._nasdaq.get_historical_prices(
+                    ticker,
+                    fromdate=start_d,
+                    todate=end_d,
+                    asset_class=asset_class,
+                )
+                result = {
+                    **primary,
+                    "source": "nasdaq",
+                    "source_url": source_url,
+                    "fallback_used": False,
+                }
+                if tf == "1w":
+                    weekly_prices = _aggregate_weekly(result.get("prices") or [])
+                    result["prices"] = weekly_prices
+                    result["count"] = len(weekly_prices)
+                result["timeframe"] = tf
+                self._historical_cache[cache_key] = (now, result)
+                return result
+            except Exception as e:
+                nasdaq_err_for_reason = e
+
+        # Nasdaq unavailable or not applicable — try Stooq then yfinance.
+        nasdaq_skip_reason = (
+            f"nasdaq={nasdaq_err_for_reason}" if nasdaq_err_for_reason else f"nasdaq skipped (asset_class={asset_class})"
+        )
+        if True:  # scoping block
             try:
                 fallback, source_url = self._stooq.get_historical_prices(
                     ticker,
@@ -637,7 +657,7 @@ class OptionEngine:
                     "source": "stooq",
                     "source_url": source_url,
                     "fallback_used": True,
-                    "fallback_reason": str(nasdaq_err),
+                    "fallback_reason": nasdaq_skip_reason,
                 }
             except Exception as stooq_err:
                 yf_daily, source_url = self._yfinance.get_daily_prices(
@@ -650,7 +670,7 @@ class OptionEngine:
                     "source": "yfinance",
                     "source_url": source_url,
                     "fallback_used": True,
-                    "fallback_reason": f"nasdaq={nasdaq_err}; stooq={stooq_err}",
+                    "fallback_reason": f"{nasdaq_skip_reason}; stooq={stooq_err}",
                 }
 
         if tf == "1w":
