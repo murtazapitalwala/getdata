@@ -1,13 +1,28 @@
 from __future__ import annotations
 
+import json
+import logging
+import os
 import time
 from dataclasses import asdict
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 
 def _utc_today() -> date:
     return datetime.now(timezone.utc).date()
+
 from typing import Any, Dict, Optional
+
+_logger = logging.getLogger(__name__)
+
+# Local data directory — overridable via STOCK_DATA_DIR env var.
+_DATA_DIR = Path(os.environ.get("STOCK_DATA_DIR") or (Path(__file__).resolve().parents[2] / "data"))
+
+_TF_FILE_SUFFIX: dict[str, str] = {
+    "1d": "dailydata",
+    "1w": "weeklydata",
+}
 
 from .options_math import (
     BsInputs,
@@ -561,6 +576,47 @@ class OptionEngine:
         now = time.time()
         if not refresh and cached and (now - cached[0]) < self._historical_cache_ttl_s:
             return cached[1]
+
+        # ── Local file check ────────────────────────────────────────────────
+        # For 1d/1w, check if a pre-fetched data file covers the requested
+        # date range before hitting any external API.
+        if not refresh and tf in _TF_FILE_SUFFIX:
+            _file = _DATA_DIR / f"{ticker.lower()}_{_TF_FILE_SUFFIX[tf]}.json"
+            if _file.exists():
+                try:
+                    with _file.open() as _fh:
+                        _fd = json.load(_fh)
+                    _file_from = date.fromisoformat(_fd["from_date"])
+                    _file_to = date.fromisoformat(_fd["to_date"])
+                    if _file_from <= start_d and _file_to >= end_d:
+                        _all = _fd.get("prices") or []
+                        _filtered = [
+                            p for p in _all
+                            if start_d <= date.fromisoformat(p["date"]) <= end_d
+                        ]
+                        result = {
+                            "ticker": ticker.upper(),
+                            "from_date": start_d.isoformat(),
+                            "to_date": end_d.isoformat(),
+                            "prices": _filtered,
+                            "count": len(_filtered),
+                            "source": "local_file",
+                            "source_url": str(_file),
+                            "fallback_used": False,
+                            "timeframe": tf,
+                        }
+                        self._historical_cache[cache_key] = (now, result)
+                        _logger.debug(
+                            "Local file HIT %s %s (%d bars)", ticker.upper(), tf, len(_filtered)
+                        )
+                        return result
+                    _logger.debug(
+                        "Local file range miss %s %s: file=%s→%s, req=%s→%s",
+                        ticker.upper(), tf, _file_from, _file_to, start_d, end_d,
+                    )
+                except Exception as _fe:
+                    _logger.warning("Local file load failed for %s %s: %s", ticker, tf, _fe)
+        # ────────────────────────────────────────────────────────────────────
 
         if tf == "1h":
             try:
