@@ -49,9 +49,16 @@ _WARMUP_COMBOS: list[tuple[str, int]] = [
 
 
 def _warmup_cache() -> None:
+    import time as _time
     today = date.today()
     total = len(_WARMUP_TICKERS) * len(_WARMUP_COMBOS)
-    done = 0
+    succeeded = 0
+    failed = 0
+    t0 = _time.time()
+    logger.info("═" * 60)
+    logger.info("CACHE WARM-UP STARTED — %d fetches (%d tickers × %d timeframes)",
+                total, len(_WARMUP_TICKERS), len(_WARMUP_COMBOS))
+    logger.info("═" * 60)
     for ticker, asset_class in _WARMUP_TICKERS:
         for tf, days in _WARMUP_COMBOS:
             start_d = today - timedelta(days=days)
@@ -63,11 +70,18 @@ def _warmup_cache() -> None:
                     timeframe=tf,
                     asset_class=asset_class,
                 )
-                done += 1
-                logger.info("Cache warm-up [%d/%d] OK  %s %s %s→%s", done, total, ticker, tf, start_d, today)
+                succeeded += 1
+                logger.info("  warm-up [%d/%d] ✓  %-6s %-3s %s → %s",
+                            succeeded + failed, total, ticker, tf, start_d, today)
             except Exception:
-                done += 1
-                logger.warning("Cache warm-up [%d/%d] FAIL %s %s", done, total, ticker, tf, exc_info=True)
+                failed += 1
+                logger.warning("  warm-up [%d/%d] ✗  %-6s %-3s",
+                               succeeded + failed, total, ticker, tf, exc_info=True)
+    elapsed = _time.time() - t0
+    logger.info("═" * 60)
+    logger.info("CACHE WARM-UP FINISHED in %.1fs — %d succeeded, %d failed",
+                elapsed, succeeded, failed)
+    logger.info("═" * 60)
 
 
 @asynccontextmanager
@@ -85,7 +99,6 @@ app = FastAPI(
     servers=[{"url": "https://getdata-uufz.onrender.com"}],
     lifespan=lifespan,
 )
-#app = FastAPI(title="Stock Analysis API", version="0.1.0", servers=[{"url": "http://localhost:8080"}])  # local override for testing
 engine = OptionEngine()
 # Dedicated engine with 5-minute HTTP timeouts for long-running historical fetches.
 _historical_engine = OptionEngine(http_timeout_s=600.0)
@@ -135,6 +148,13 @@ def historical_prices(
         raise HTTPException(status_code=400, detail="from_date must be on or before to_date")
 
     logger.info("Fetching historical prices for %s from %s to %s (refresh=%s)", ticker, start_d, end_d, refresh)
+    # Check cache state before the call so we can log hit vs miss.
+    cache_key = f"{ticker.upper()}:{start_d.isoformat()}:{end_d.isoformat()}:{asset_class}:{str(timeframe).strip().lower()}"
+    cache_hit = (not refresh) and (cache_key in _historical_engine._historical_cache)
+    if cache_hit:
+        logger.info("Cache HIT for %s %s %s→%s", ticker, timeframe, start_d, end_d)
+    else:
+        logger.info("Cache MISS for %s %s %s→%s — fetching from source", ticker, timeframe, start_d, end_d)
     try:
         result = _historical_engine.get_historical_prices(
             ticker,
