@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import threading
+import time as _time
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 
@@ -47,6 +48,10 @@ _WARMUP_COMBOS: list[tuple[str, int]] = [
     ("1w",  730),   # 2 years weekly
 ]
 
+# Maps timeframe → default lookback days used by both warm-up AND the endpoint.
+_TIMEFRAME_DEFAULT_DAYS: dict[str, int] = {combo[0]: combo[1] for combo in _WARMUP_COMBOS}
+_TIMEFRAME_DEFAULT_DAYS["1h"] = 31  # 1 month hourly (not pre-warmed but consistent)
+
 
 def _warmup_cache() -> None:
     import time as _time
@@ -90,13 +95,30 @@ async def lifespan(app: FastAPI):
     t = threading.Thread(target=_warmup_cache, name="cache-warmup", daemon=True)
     t.start()
     logger.info("Cache warm-up started in background (%d combos)", len(_WARMUP_TICKERS) * len(_WARMUP_COMBOS))
+
+    # Schedule a daily re-warm at midnight so default-date cache keys stay fresh.
+    def _daily_rewarm():
+        while True:
+            now = _time.time()
+            import math
+            from datetime import datetime
+            tomorrow = datetime.combine(date.today() + timedelta(days=1), __import__('datetime').time.min)
+            seconds_until_midnight = (tomorrow - datetime.now()).total_seconds()
+            logger.info("Daily re-warm scheduled in %.0fs (at midnight)", seconds_until_midnight)
+            _time.sleep(max(seconds_until_midnight, 1))
+            logger.info("Daily re-warm triggered")
+            _warmup_cache()
+
+    rt = threading.Thread(target=_daily_rewarm, name="cache-daily-rewarm", daemon=True)
+    rt.start()
     yield
 
 
 app = FastAPI(
     title="Stock Analysis API",
     version="0.1.0",
-    servers=[{"url": "https://getdata-uufz.onrender.com"}],
+    #servers=[{"url": "https://getdata-uufz.onrender.com"}],
+    servers=[{"url": "http://localhost:8080"}],
     lifespan=lifespan,
 )
 engine = OptionEngine()
@@ -143,7 +165,9 @@ def historical_prices(
     refresh: bool = Query(False, description="Set true to bypass cache and force a fresh fetch"),
 ):
     end_d = to_date or date.today()
-    start_d = from_date or (end_d - timedelta(days=365))
+    tf_norm = str(timeframe).strip().lower()
+    default_days = _TIMEFRAME_DEFAULT_DAYS.get(tf_norm, 365)
+    start_d = from_date or (end_d - timedelta(days=default_days))
     if start_d > end_d:
         raise HTTPException(status_code=400, detail="from_date must be on or before to_date")
 
