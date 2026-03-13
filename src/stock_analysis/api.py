@@ -117,8 +117,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Stock Analysis API",
     version="0.1.0",
-    #servers=[{"url": "https://getdata-uufz.onrender.com"}],
-    servers=[{"url": "http://localhost:8080"}],
+    servers=[{"url": "https://getdata-uufz.onrender.com"}],
+    #servers=[{"url": "http://localhost:8080"}],
     lifespan=lifespan,
 )
 engine = OptionEngine()
