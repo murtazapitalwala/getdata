@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import time
 from dataclasses import asdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+
+
+def _utc_today() -> date:
+    return datetime.now(timezone.utc).date()
 from typing import Any, Dict, Optional
 
 from .options_math import (
@@ -544,7 +548,7 @@ class OptionEngine:
         asset_class: str = "stocks",
         refresh: bool = False,
     ) -> Dict[str, Any]:
-        end_d = to_date or date.today()
+        end_d = to_date or _utc_today()
         start_d = from_date or (end_d - timedelta(days=365))
         if start_d > end_d:
             raise ValueError("from_date must be on or before to_date")
@@ -590,7 +594,7 @@ class OptionEngine:
                 except Exception as yfin_err:
                     # Nasdaq intraday endpoint is only useful for current-day minute data.
                     # Keep it as a final resilience fallback for current day.
-                    today = date.today()
+                    today = _utc_today()
                     if start_d == today and end_d == today:
                         intraday, source_url = self._nasdaq.get_intraday_prices(
                             ticker,

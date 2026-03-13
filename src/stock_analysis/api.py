@@ -5,7 +5,11 @@ import subprocess
 import threading
 import time as _time
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+
+
+def _utc_today() -> date:
+    return datetime.now(timezone.utc).date()
 
 from fastapi import FastAPI, HTTPException, Query, Request
 
@@ -33,6 +37,9 @@ _GIT_COMMIT = _git_sha()
 _WARMUP_TICKERS: list[tuple[str, str]] = [
     ("TQQQ", "etf"),
     ("SOXL", "etf"),
+    ("NFLX",  "stocks"),
+    ("AAPL", "stocks"),
+    ("NVDA", "stocks"),
     ("TSLA", "stocks"),
     ("TSLL", "etf"),
     ("GOOG", "stocks"),
@@ -55,7 +62,7 @@ _TIMEFRAME_DEFAULT_DAYS["1h"] = 31  # 1 month hourly (not pre-warmed but consist
 
 def _warmup_cache() -> None:
     import time as _time
-    today = date.today()
+    today = _utc_today()
     total = len(_WARMUP_TICKERS) * len(_WARMUP_COMBOS)
     succeeded = 0
     failed = 0
@@ -99,14 +106,20 @@ async def lifespan(app: FastAPI):
     # Schedule a daily re-warm at midnight so default-date cache keys stay fresh.
     def _daily_rewarm():
         while True:
-            now = _time.time()
-            import math
-            from datetime import datetime
-            tomorrow = datetime.combine(date.today() + timedelta(days=1), __import__('datetime').time.min)
-            seconds_until_midnight = (tomorrow - datetime.now()).total_seconds()
-            logger.info("Daily re-warm scheduled in %.0fs (at midnight)", seconds_until_midnight)
+            tomorrow = datetime.combine(_utc_today() + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+            seconds_until_midnight = (tomorrow - datetime.now(timezone.utc)).total_seconds()
+            logger.info("Daily re-warm scheduled in %.0fs (at midnight UTC)", seconds_until_midnight)
             _time.sleep(max(seconds_until_midnight, 1))
-            logger.info("Daily re-warm triggered")
+            # Evict stale warm-up entries (previous day's keys) before re-warming.
+            today = _utc_today()
+            for ticker, asset_class in _WARMUP_TICKERS:
+                for tf, days in _WARMUP_COMBOS:
+                    old_start = (today - timedelta(days=1)) - timedelta(days=days)
+                    old_key = f"{ticker.upper()}:{old_start.isoformat()}:{(today - timedelta(days=1)).isoformat()}:{asset_class}:{tf}"
+                    if old_key in _historical_engine._historical_cache:
+                        del _historical_engine._historical_cache[old_key]
+                        logger.info("  evicted stale key: %s", old_key)
+            logger.info("Daily re-warm triggered (UTC date: %s)", today)
             _warmup_cache()
 
     rt = threading.Thread(target=_daily_rewarm, name="cache-daily-rewarm", daemon=True)
@@ -164,7 +177,7 @@ def historical_prices(
     asset_class: str = Query("stocks", description="Asset class for Nasdaq lookup: stocks or etf"),
     refresh: bool = Query(False, description="Set true to bypass cache and force a fresh fetch"),
 ):
-    end_d = to_date or date.today()
+    end_d = to_date or _utc_today()
     tf_norm = str(timeframe).strip().lower()
     default_days = _TIMEFRAME_DEFAULT_DAYS.get(tf_norm, 365)
     start_d = from_date or (end_d - timedelta(days=default_days))
