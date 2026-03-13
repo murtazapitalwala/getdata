@@ -178,6 +178,36 @@ class OptionEngine:
         self._historical_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
         self._historical_cache_ttl_s = float("inf")  # entries live until restart or explicit refresh
 
+    def _fetch_daily_prices(
+        self,
+        ticker: str,
+        start_d: date,
+        end_d: date,
+        asset_class: str,
+    ) -> list[dict[str, Any]]:
+        """Fetch daily bars from external sources (nasdaq → stooq → yfinance)."""
+        _nasdaq_ok = asset_class.strip().lower() == "stocks"
+        nasdaq_err: Optional[Exception] = None
+        if _nasdaq_ok:
+            try:
+                primary, _ = self._nasdaq.get_historical_prices(
+                    ticker, fromdate=start_d, todate=end_d, asset_class=asset_class,
+                )
+                return primary.get("prices") or []
+            except Exception as e:
+                nasdaq_err = e
+
+        try:
+            fallback, _ = self._stooq.get_historical_prices(
+                ticker, fromdate=start_d, todate=end_d,
+            )
+            return fallback.get("prices") or []
+        except Exception as stooq_err:
+            yf_daily, _ = self._yfinance.get_daily_prices(
+                ticker, fromdate=start_d, todate=end_d,
+            )
+            return yf_daily.get("prices") or []
+
     def get_latest_price(self, ticker: str, asset_class: str = "stocks") -> Dict[str, Any]:
         price, url = self._nasdaq.get_underlying_from_option_chain(ticker, asset_class=asset_class)
         return {"ticker": ticker.upper(), "price": float(price), "source": url}
@@ -577,9 +607,11 @@ class OptionEngine:
         if not refresh and cached and (now - cached[0]) < self._historical_cache_ttl_s:
             return cached[1]
 
-        # ── Local file check ────────────────────────────────────────────────
-        # For 1d/1w, check if a pre-fetched data file covers the requested
-        # date range before hitting any external API.
+        # ── Local file check (with delta-fetch) ──────────────────────────
+        # For 1d/1w, check if a pre-fetched data file covers (or partially
+        # covers) the requested date range.  If only a portion is missing,
+        # fetch just the gap from external sources, merge, update the file,
+        # and return the combined result.
         if not refresh and tf in _TF_FILE_SUFFIX:
             _file = _DATA_DIR / f"{ticker.lower()}_{_TF_FILE_SUFFIX[tf]}.json"
             if _file.exists():
@@ -588,10 +620,12 @@ class OptionEngine:
                         _fd = json.load(_fh)
                     _file_from = date.fromisoformat(_fd["from_date"])
                     _file_to = date.fromisoformat(_fd["to_date"])
+                    _all_prices: list[dict[str, Any]] = _fd.get("prices") or []
+
                     if _file_from <= start_d and _file_to >= end_d:
-                        _all = _fd.get("prices") or []
+                        # Full hit — file covers the entire requested range.
                         _filtered = [
-                            p for p in _all
+                            p for p in _all_prices
                             if start_d <= date.fromisoformat(p["date"]) <= end_d
                         ]
                         result = {
@@ -610,10 +644,96 @@ class OptionEngine:
                             "Local file HIT %s %s (%d bars)", ticker.upper(), tf, len(_filtered)
                         )
                         return result
+
+                    # Partial coverage — determine the gap(s) and fetch only
+                    # the missing delta from external sources.
                     _logger.debug(
-                        "Local file range miss %s %s: file=%s→%s, req=%s→%s",
+                        "Local file partial %s %s: file=%s→%s, req=%s→%s — fetching delta",
                         ticker.upper(), tf, _file_from, _file_to, start_d, end_d,
                     )
+                    delta_prices: list[dict[str, Any]] = []
+
+                    # Leading gap: request starts before the file.
+                    if start_d < _file_from:
+                        lead_end = _file_from - timedelta(days=1)
+                        try:
+                            delta_prices.extend(
+                                self._fetch_daily_prices(ticker, start_d, lead_end, asset_class)
+                            )
+                            _logger.debug(
+                                "Delta-fetch leading gap %s→%s: %d bars",
+                                start_d, lead_end, len(delta_prices),
+                            )
+                        except Exception as _le:
+                            _logger.warning("Delta leading-gap fetch failed: %s", _le)
+
+                    # Trailing gap: request ends after the file.
+                    if end_d > _file_to:
+                        trail_start = _file_to + timedelta(days=1)
+                        try:
+                            trail = self._fetch_daily_prices(ticker, trail_start, end_d, asset_class)
+                            _logger.debug(
+                                "Delta-fetch trailing gap %s→%s: %d bars",
+                                trail_start, end_d, len(trail),
+                            )
+                            delta_prices.extend(trail)
+                        except Exception as _te:
+                            _logger.warning("Delta trailing-gap fetch failed: %s", _te)
+
+                    # Merge: combine file data + delta, deduplicate by date,
+                    # sort chronologically.
+                    merged_map: dict[str, dict[str, Any]] = {}
+                    for p in _all_prices:
+                        merged_map[p["date"]] = p
+                    for p in delta_prices:
+                        merged_map[p["date"]] = p  # fresh data wins on overlap
+                    merged = sorted(merged_map.values(), key=lambda x: x["date"])
+
+                    # Update local file with expanded range so subsequent
+                    # requests are a full hit.
+                    new_from = min(start_d, _file_from)
+                    new_to = max(end_d, _file_to)
+                    try:
+                        _DATA_DIR.mkdir(parents=True, exist_ok=True)
+                        updated_fd = {
+                            **_fd,
+                            "from_date": new_from.isoformat(),
+                            "to_date": new_to.isoformat(),
+                            "prices": merged,
+                            "count": len(merged),
+                        }
+                        with _file.open("w") as _fw:
+                            json.dump(updated_fd, _fw)
+                        _logger.debug(
+                            "Updated local file %s: %s→%s (%d bars)",
+                            _file.name, new_from, new_to, len(merged),
+                        )
+                    except Exception as _we:
+                        _logger.warning("Failed to update local file %s: %s", _file, _we)
+
+                    # Weekly aggregation if needed.
+                    if tf == "1w":
+                        merged = _aggregate_weekly(merged)
+
+                    # Filter to only the requested window.
+                    _filtered = [
+                        p for p in merged
+                        if start_d <= date.fromisoformat(p["date"]) <= end_d
+                    ]
+                    result = {
+                        "ticker": ticker.upper(),
+                        "from_date": start_d.isoformat(),
+                        "to_date": end_d.isoformat(),
+                        "prices": _filtered,
+                        "count": len(_filtered),
+                        "source": "local_file+delta",
+                        "source_url": str(_file),
+                        "fallback_used": False,
+                        "timeframe": tf,
+                    }
+                    self._historical_cache[cache_key] = (now, result)
+                    return result
+
                 except Exception as _fe:
                     _logger.warning("Local file load failed for %s %s: %s", ticker, tf, _fe)
         # ────────────────────────────────────────────────────────────────────
